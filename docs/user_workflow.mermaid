@@ -1,0 +1,59 @@
+flowchart TD
+    A[Landing Page] --> B{New or returning user?}
+    B -->|New| C[Sign Up]
+    B -->|Returning| D[Login]
+    C --> E[Onboarding Chat: Profiler Agent]
+    D --> Z1[Dashboard]
+
+    E --> E1[User states goal in natural language<br/>e.g. 'I want to become a backend developer']
+    E1 --> E2[Profiler Agent extracts:<br/>interests, prior experience, timeline, goal]
+    E2 --> F[Skill Assessment: Assessment Agent]
+
+    F --> F1[User selects known skills<br/>e.g. 'I know HTML']
+    F1 --> F2[Concept checklist shown<br/>user ticks concepts they know]
+    F2 --> F3[Short adaptive quiz on ticked concepts]
+    F3 --> F4[Skill-gap map generated]
+
+    F4 --> G{Does goal match dataset coverage?}
+    G -->|Yes, strong match| H[Path A offered: Dataset-Grounded]
+    G -->|No / partial match| I[Path B offered: Open Web-Sourced]
+    G -->|Ambiguous| J[User shown both, picks one]
+
+    H --> K[Path-A Agent: RAG retrieval + prerequisite graph]
+    I --> L[Path-B Agent: web/YouTube search + transcript synthesis]
+    J --> K
+    J --> L
+
+    K --> M[Roadmap Generator: builds sequenced roadmap<br/>topics -> courses -> projects -> assessments]
+    L --> M
+
+    M --> N[Roadmap Preview Page]
+    N --> N1[Visual roadmap: topic nodes with prerequisites]
+    N1 --> N2["Why this?" button on each node -> Explainer Agent]
+    N2 --> O{User confirms roadmap?}
+    O -->|Edit| N1
+    O -->|Confirm| Z1
+
+    Z1[Dashboard] --> Z2[Progress overview: % complete, skill radar chart]
+    Z1 --> Z3[Roadmap view: current topic highlighted]
+    Z1 --> Z4[Next recommended action]
+
+    Z3 --> P[Topic Detail Page]
+    P --> P1[Path A: course link + course summary]
+    P --> P1b[Path B: YouTube links, cheat sheet, roadmap notes]
+    P --> P2[Project assignment for this topic]
+    P --> P3[Assessment / quiz for this topic]
+    P --> P4[Chat sidebar: ask Explainer Agent anything]
+
+    P3 --> Q[Assessment Agent scores result]
+    Q --> Q1{Passed threshold?}
+    Q1 -->|Yes| R[Mark topic complete, update skill-gap map]
+    Q1 -->|No| S[Suggest remediation resource, retry]
+    S --> P
+
+    R --> T{More topics in roadmap?}
+    T -->|Yes| Z1
+    T -->|No| U[Roadmap Complete Page]
+    U --> U1[Summary of skills gained]
+    U1 --> U2[Offer next roadmap / new goal]
+    U2 --> E
