@@ -16,12 +16,15 @@ directly, bypassing the conversational chain - per docs/api_contract.md this
 is its own route, not just an internal side effect of /chat.
 """
 
+import io
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+import bcrypt
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from pypdf import PdfReader
 
 from backend.agents.explainer import explain_node as run_explainer
 from backend.agents.path_a import run_path_a
@@ -91,6 +94,48 @@ def create_session():
     return {"session_id": state.session_id, "state": state}
 
 
+class SignupRequest(BaseModel):
+    username: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/auth/signup")
+def signup(payload: SignupRequest):
+    if not payload.username.strip() or not payload.password:
+        raise HTTPException(status_code=400, detail="Username and password are required")
+    if db.get_user_by_username(payload.username) is not None:
+        raise HTTPException(status_code=409, detail="Username already taken")
+
+    password_hash = bcrypt.hashpw(payload.password.encode(), bcrypt.gensalt()).decode()
+    user_id = db.create_user(payload.username, password_hash)
+
+    state = AppState(session_id=str(uuid.uuid4()))
+    db.create_session(state, user_id=user_id)
+    return {"user_id": user_id, "username": payload.username, "session_id": state.session_id}
+
+
+@app.post("/auth/login")
+def login(payload: LoginRequest):
+    user = db.get_user_by_username(payload.username)
+    if user is None or not bcrypt.checkpw(payload.password.encode(), user["password_hash"].encode()):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+
+    session_id = db.get_session_id_for_user(user["user_id"])
+    if session_id is None:
+        # Shouldn't normally happen (signup always creates one) - don't
+        # strand a valid user without a session if it does.
+        state = AppState(session_id=str(uuid.uuid4()))
+        db.create_session(state, user_id=user["user_id"])
+        session_id = state.session_id
+
+    return {"user_id": user["user_id"], "username": user["username"], "session_id": session_id}
+
+
 class ChatRequest(BaseModel):
     session_id: str
     message: str
@@ -141,6 +186,27 @@ class ImportContextRequest(BaseModel):
 def import_context(payload: ImportContextRequest):
     state = _load_or_404(payload.session_id)
     state.learner_profile.imported_context_raw = payload.imported_text
+    db.save_state(state)
+    return {"state": state}
+
+
+@app.post("/profile/resume")
+async def upload_resume(session_id: str = Form(...), file: UploadFile = File(...)):
+    state = _load_or_404(session_id)
+    if not (file.filename or "").lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Only PDF resumes are supported right now")
+
+    raw_bytes = await file.read()
+    try:
+        reader = PdfReader(io.BytesIO(raw_bytes))
+        text = "\n".join(page.extract_text() or "" for page in reader.pages).strip()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Couldn't read that PDF") from exc
+
+    if not text:
+        raise HTTPException(status_code=400, detail="No extractable text found in that PDF")
+
+    state.learner_profile.resume_raw = text
     db.save_state(state)
     return {"state": state}
 

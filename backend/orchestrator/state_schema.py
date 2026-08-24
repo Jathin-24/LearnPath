@@ -84,6 +84,11 @@ class LearnerProfile(BaseModel):
     # it is never sent back out anywhere and is not treated as ground truth
     # on its own (still merged with what the user tells us directly).
     imported_context_raw: Optional[str] = None
+    # Optional: extracted text from an uploaded resume (PDF only - see
+    # backend/api/main.py's /profile/resume route). Same treatment as
+    # imported_context_raw: a hint merged into Profiler's extraction prompt,
+    # never treated as ground truth on its own.
+    resume_raw: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------

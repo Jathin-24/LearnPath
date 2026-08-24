@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { importContext, sendChatMessage, getState } from "../api";
+import { sendChatMessage, getState } from "../api";
 import ChatBubble from "../components/ChatBubble";
+import NavBar from "../components/NavBar";
 import { routeForStage } from "../routing";
 import { getSessionId } from "../session";
 import type { ChatTurn } from "../types";
@@ -14,14 +15,11 @@ export default function Chat() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showImport, setShowImport] = useState(false);
-  const [importText, setImportText] = useState("");
-  const [importing, setImporting] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!sessionId) {
-      navigate("/", { replace: true });
+      navigate("/login", { replace: true });
       return;
     }
     getState(sessionId).then(({ state }) => setHistory(state.conversation_history));
@@ -55,52 +53,15 @@ export default function Chat() {
     }
   }
 
-  async function handleImport() {
-    if (!sessionId || !importText.trim()) return;
-    setImporting(true);
-    try {
-      await importContext(sessionId, importText.trim());
-      setShowImport(false);
-      setImportText("");
-    } catch {
-      setError("Couldn't import that context - try again.");
-    } finally {
-      setImporting(false);
-    }
-  }
-
   return (
     <div className="flex min-h-screen flex-col bg-slate-950 text-white">
+      <NavBar />
       <header className="border-b border-slate-800 px-6 py-4">
         <h1 className="text-lg font-semibold">Let's figure out your path</h1>
-        <button
-          onClick={() => setShowImport((v) => !v)}
-          className="mt-1 text-xs text-indigo-400 hover:underline"
-        >
-          {showImport ? "hide" : "Already talked to another AI about your goals?"}
-        </button>
-        {showImport && (
-          <div className="mt-3 flex flex-col gap-2 rounded-lg bg-slate-900 p-3">
-            <p className="text-xs text-slate-400">
-              Paste a summary from another AI tool - nothing leaves your control, this
-              just gives us a head start.
-            </p>
-            <textarea
-              value={importText}
-              onChange={(e) => setImportText(e.target.value)}
-              rows={3}
-              className="rounded-md bg-slate-800 p-2 text-sm text-white outline-none"
-              placeholder="Paste the summary here..."
-            />
-            <button
-              onClick={handleImport}
-              disabled={importing || !importText.trim()}
-              className="self-start rounded-md bg-indigo-500 px-3 py-1 text-sm font-medium disabled:opacity-50"
-            >
-              {importing ? "Saving..." : "Save"}
-            </button>
-          </div>
-        )}
+        <p className="mt-1 text-xs text-slate-500">
+          Already talked to another AI about your goals? Visit{" "}
+          <span className="text-indigo-400">Import AI Context</span> above to bring that in.
+        </p>
       </header>
 
       <div className="flex-1 space-y-3 overflow-y-auto px-6 py-6">

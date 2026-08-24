@@ -44,6 +44,15 @@ def load_courses() -> dict:
     return _load_courses()
 
 
+def embed_text(text: str) -> list[float]:
+    """Raw normalized embedding for a piece of text - used by Path-A to
+    compare goals for the roadmap_templates reuse cache (backend/common/db.py),
+    not just course similarity search."""
+    model = _load_model()
+    vec = model.encode([text], normalize_embeddings=True)
+    return vec[0].tolist()
+
+
 def retrieve(query: str, k: int = 5) -> list[dict]:
     """Returns up to k courses most relevant to query, ranked by cosine
     similarity, each as {"course_name": str, "score": float, **enriched fields}."""

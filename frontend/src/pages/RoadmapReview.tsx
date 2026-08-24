@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { confirmRoadmap, explainNode, getState } from "../api";
+import NavBar from "../components/NavBar";
 import RoadmapGraph from "../components/RoadmapGraph";
+import RoadmapList from "../components/RoadmapList";
 import { getSessionId } from "../session";
 import type { AppState, RoadmapNode } from "../types";
 
@@ -9,6 +11,7 @@ export default function RoadmapReview() {
   const navigate = useNavigate();
   const sessionId = getSessionId();
   const [state, setState] = useState<AppState | null>(null);
+  const [view, setView] = useState<"graph" | "list">("graph");
   const [selected, setSelected] = useState<RoadmapNode | null>(null);
   const [explanation, setExplanation] = useState<string | null>(null);
   const [explaining, setExplaining] = useState(false);
@@ -16,7 +19,7 @@ export default function RoadmapReview() {
 
   useEffect(() => {
     if (!sessionId) {
-      navigate("/", { replace: true });
+      navigate("/login", { replace: true });
       return;
     }
     getState(sessionId).then(({ state }) => setState(state));
@@ -59,16 +62,43 @@ export default function RoadmapReview() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 px-6 py-8 text-white">
-      <div className="mx-auto max-w-5xl">
-        <h1 className="text-2xl font-bold">Your Roadmap</h1>
-        <p className="mt-1 text-sm text-slate-400">
-          {roadmap.nodes.length} topics, sequenced by prerequisite. Click a topic to see
-          why it's here.
-        </p>
+    <div className="min-h-screen bg-slate-950 text-white">
+      <NavBar />
+      <div className="mx-auto max-w-5xl px-6 py-8">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold">Your Roadmap</h1>
+            <p className="mt-1 text-sm text-slate-400">
+              {roadmap.nodes.length} topics, sequenced by prerequisite. Click a topic to see
+              why it's here.
+            </p>
+          </div>
+          <div className="flex shrink-0 gap-1 rounded-full bg-slate-900 p-1">
+            <button
+              onClick={() => setView("graph")}
+              className={`rounded-full px-3 py-1 text-xs font-medium ${
+                view === "graph" ? "bg-indigo-500 text-white" : "text-slate-400"
+              }`}
+            >
+              Graph
+            </button>
+            <button
+              onClick={() => setView("list")}
+              className={`rounded-full px-3 py-1 text-xs font-medium ${
+                view === "list" ? "bg-indigo-500 text-white" : "text-slate-400"
+              }`}
+            >
+              List
+            </button>
+          </div>
+        </div>
 
         <div className="mt-6">
-          <RoadmapGraph nodes={roadmap.nodes} onNodeClick={handleNodeClick} />
+          {view === "graph" ? (
+            <RoadmapGraph nodes={roadmap.nodes} onNodeClick={handleNodeClick} />
+          ) : (
+            <RoadmapList nodes={roadmap.nodes} onNodeClick={handleNodeClick} />
+          )}
         </div>
 
         {selected && (

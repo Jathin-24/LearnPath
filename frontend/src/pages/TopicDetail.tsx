@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { explainNode, getState, submitAssessment } from "../api";
+import NavBar from "../components/NavBar";
 import QuizForm from "../components/QuizForm";
 import { getSessionId } from "../session";
 import type { AppState, RoadmapNode } from "../types";
@@ -18,7 +19,7 @@ export default function TopicDetail() {
 
   useEffect(() => {
     if (!sessionId || !nodeId) {
-      navigate("/", { replace: true });
+      navigate("/login", { replace: true });
       return;
     }
     getState(sessionId).then(({ state }) => {
@@ -62,8 +63,9 @@ export default function TopicDetail() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 px-6 py-8 text-white">
-      <div className="mx-auto grid max-w-5xl gap-6 md:grid-cols-[2fr_1fr]">
+    <div className="min-h-screen bg-slate-950 text-white">
+      <NavBar />
+      <div className="mx-auto grid max-w-5xl gap-6 px-6 py-8 md:grid-cols-[2fr_1fr]">
         <div className="space-y-6">
           <div>
             <h1 className="text-2xl font-bold">{node.topic}</h1>

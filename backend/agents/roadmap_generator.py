@@ -16,12 +16,22 @@ free-tier call volume down - Project Generator's responsibility (per
 docs/project_brief.md's agent table) is folded in here rather than a
 separate graph node, since CLAUDE.md's build order doesn't list it as its
 own step.
+
+Also owns writing to the roadmap_templates cache (backend/common/db.py):
+once a freshly-generated roadmap's nodes all have projects/assessments
+attached, it's saved so the next learner with a very similar goal can
+reuse it (backend/agents/path_a.py checks this cache first). Nodes reused
+from a template already have `project` set, so the per-node generation
+loop below skips them - the same loop naturally handles both "fresh
+generation" and "template reuse, nothing left to do" without a separate
+flag.
 """
 
 import json
 
 from pydantic import BaseModel, ValidationError
 
+from backend.common import db
 from backend.common.llm_client import LLMClient
 from backend.orchestrator.state_schema import (
     AgentName,
@@ -32,6 +42,7 @@ from backend.orchestrator.state_schema import (
     ProjectAssignment,
     TopicAssessment,
 )
+from backend.rag.retriever import embed_text
 
 QUESTIONS_PER_NODE = 3
 
@@ -81,6 +92,17 @@ def _generate_node_content(client: LLMClient, topic: str, course_summary: str | 
         return attempt(stricter)  # let this raise if it fails again - fail loud
 
 
+def _save_as_template(state: AppState) -> None:
+    """Caching is an optimization, not correctness - never let a caching
+    failure break an otherwise-complete roadmap for this user."""
+    try:
+        embedding = embed_text(state.learner_profile.goal)
+        nodes_json = [n.model_dump(mode="json") for n in state.roadmap.nodes]
+        db.save_roadmap_template(state.learner_profile.goal, embedding, nodes_json)
+    except Exception as exc:
+        state.log(AgentName.ROADMAP_GENERATOR, "template_cache_write_failed", detail=str(exc))
+
+
 def run_roadmap_generator(state: AppState, llm_client: LLMClient | None = None) -> AppState:
     if state.roadmap is None:
         raise ValueError(
@@ -89,9 +111,12 @@ def run_roadmap_generator(state: AppState, llm_client: LLMClient | None = None) 
 
     client = llm_client or LLMClient()
 
-    for node in state.roadmap.nodes:
-        if node.path_type != PathType.PATH_A_DATASET:
-            continue  # Path-B stub nodes stay unfilled until the Path-B agent exists
+    dataset_nodes = [n for n in state.roadmap.nodes if n.path_type == PathType.PATH_A_DATASET]
+    was_reused = bool(dataset_nodes) and all(n.project is not None for n in dataset_nodes)
+
+    for node in dataset_nodes:
+        if node.project is not None:
+            continue  # already populated - this roadmap was reused from a template
         content = _generate_node_content(client, node.topic, node.course_summary)
         node.project = ProjectAssignment(
             title=content.project_title, description=content.project_description
@@ -104,5 +129,9 @@ def run_roadmap_generator(state: AppState, llm_client: LLMClient | None = None) 
         "roadmap_finalized",
         detail=f"{len(state.roadmap.nodes)} nodes, projects/assessments attached to dataset nodes",
     )
+
+    if not was_reused and state.learner_profile.goal:
+        _save_as_template(state)
+
     state.next_agent = AgentName.DONE
     return state

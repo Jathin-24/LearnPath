@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { getDashboard, getState } from "../api";
+import NavBar from "../components/NavBar";
 import RoadmapGraph from "../components/RoadmapGraph";
+import RoadmapList from "../components/RoadmapList";
 import SkillRadarChart from "../components/SkillRadarChart";
 import { getSessionId } from "../session";
 import type { AppState, DashboardResponse } from "../types";
@@ -11,10 +13,11 @@ export default function Dashboard() {
   const sessionId = getSessionId();
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [state, setState] = useState<AppState | null>(null);
+  const [view, setView] = useState<"graph" | "list">("graph");
 
   useEffect(() => {
     if (!sessionId) {
-      navigate("/", { replace: true });
+      navigate("/login", { replace: true });
       return;
     }
     Promise.all([getDashboard(sessionId), getState(sessionId)]).then(
@@ -39,8 +42,9 @@ export default function Dashboard() {
   const availableNode = state.roadmap?.nodes.find((n) => n.status === "available");
 
   return (
-    <div className="min-h-screen bg-slate-950 px-6 py-8 text-white">
-      <div className="mx-auto max-w-5xl space-y-6">
+    <div className="min-h-screen bg-slate-950 text-white">
+      <NavBar />
+      <div className="mx-auto max-w-5xl space-y-6 px-6 py-8">
         <div>
           <h1 className="text-2xl font-bold">Dashboard</h1>
           <div className="mt-3 h-3 w-full overflow-hidden rounded-full bg-slate-800">
@@ -73,8 +77,32 @@ export default function Dashboard() {
 
         {state.roadmap && (
           <div>
-            <h2 className="mb-2 text-sm font-semibold text-slate-300">Your Roadmap</h2>
-            <RoadmapGraph nodes={state.roadmap.nodes} colorByStatus />
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-slate-300">Your Roadmap</h2>
+              <div className="flex shrink-0 gap-1 rounded-full bg-slate-900 p-1">
+                <button
+                  onClick={() => setView("graph")}
+                  className={`rounded-full px-3 py-1 text-xs font-medium ${
+                    view === "graph" ? "bg-indigo-500 text-white" : "text-slate-400"
+                  }`}
+                >
+                  Graph
+                </button>
+                <button
+                  onClick={() => setView("list")}
+                  className={`rounded-full px-3 py-1 text-xs font-medium ${
+                    view === "list" ? "bg-indigo-500 text-white" : "text-slate-400"
+                  }`}
+                >
+                  List
+                </button>
+              </div>
+            </div>
+            {view === "graph" ? (
+              <RoadmapGraph nodes={state.roadmap.nodes} colorByStatus />
+            ) : (
+              <RoadmapList nodes={state.roadmap.nodes} />
+            )}
           </div>
         )}
       </div>

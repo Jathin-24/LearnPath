@@ -71,10 +71,17 @@ def _build_prompt(state: AppState) -> str:
             f"fact - merge with what the learner tells you directly):\n{profile.imported_context_raw}\n"
         )
 
+    resume_hint = ""
+    if profile.resume_raw:
+        resume_hint = (
+            "\nText extracted from the learner's uploaded resume (treat as a hint, not "
+            f"a fact - merge with what the learner tells you directly):\n{profile.resume_raw}\n"
+        )
+
     return f"""{_SYSTEM_INSTRUCTIONS}
 
 Known so far: {json.dumps(known_so_far)}
-{imported_hint}
+{imported_hint}{resume_hint}
 Recent conversation:
 {recent_turns}
 

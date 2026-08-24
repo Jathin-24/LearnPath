@@ -27,8 +27,18 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export function createSession(): Promise<{ session_id: string; state: AppState }> {
-  return request("/session", { method: "POST" });
+interface AuthResponse {
+  user_id: string;
+  username: string;
+  session_id: string;
+}
+
+export function signup(username: string, password: string): Promise<AuthResponse> {
+  return request("/auth/signup", { method: "POST", body: JSON.stringify({ username, password }) });
+}
+
+export function login(username: string, password: string): Promise<AuthResponse> {
+  return request("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) });
 }
 
 export function getState(sessionId: string): Promise<{ state: AppState }> {
@@ -85,4 +95,19 @@ export function submitAssessment(
 
 export function getDashboard(sessionId: string): Promise<DashboardResponse> {
   return request(`/dashboard/${sessionId}`);
+}
+
+export async function uploadResume(sessionId: string, file: File): Promise<{ state: AppState }> {
+  // Not routed through request() - a multipart body needs the browser to set
+  // its own Content-Type boundary, not the fixed "application/json" header.
+  const formData = new FormData();
+  formData.append("session_id", sessionId);
+  formData.append("file", file);
+
+  const res = await fetch(`${BASE_URL}/profile/resume`, { method: "POST", body: formData });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new ApiError(res.status, body || res.statusText);
+  }
+  return res.json() as Promise<{ state: AppState }>;
 }
