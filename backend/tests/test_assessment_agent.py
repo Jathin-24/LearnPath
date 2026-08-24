@@ -27,7 +27,8 @@ def test_present_checklist_phase():
     assert len(result.conversation_history) == 1
     assert result.conversation_history[0].role == "assistant"
     assert result.conversation_history[0].content.startswith(CHECKLIST_MARKER)
-    assert result.next_agent == AgentName.DONE
+    assert result.next_agent == AgentName.ASSESSMENT
+    assert result.awaiting_input is True
     assert result.progress_log[-1].event_type == "checklist_presented"
 
 
@@ -48,7 +49,8 @@ def test_generate_quiz_phase_confirms_concepts_and_builds_quiz():
     assert confirmed, "expected at least one concept confirmed"
     assert all(a.status == ConceptStatus.CLAIMED_UNCONFIRMED for a in result.skill_gap_map.assessments)
     assert len(result.pending_quiz) == len(result.skill_gap_map.assessments)
-    assert result.next_agent == AgentName.DONE
+    assert result.next_agent == AgentName.ASSESSMENT
+    assert result.awaiting_input is True
 
 
 def test_grade_quiz_phase_scores_deterministically():
@@ -75,6 +77,7 @@ def test_grade_quiz_phase_scores_deterministically():
 
     assert result.pending_quiz == []
     assert result.next_agent == AgentName.PATH_A
+    assert result.awaiting_input is False
     assert result.skill_gap_map.assessments[0].status == ConceptStatus.KNOWN
     assert result.skill_gap_map.assessments[0].quiz_score == 1.0
     assert result.skill_gap_map.assessments[1].status == ConceptStatus.KNOWN

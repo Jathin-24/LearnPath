@@ -22,9 +22,12 @@ def test_profiler_extracts_goal_from_first_message():
     assert result.conversation_history[1].role == "assistant"
     assert len(result.progress_log) == 1
     assert result.progress_log[0].agent == AgentName.PROFILER
-    assert result.next_agent in (AgentName.ASSESSMENT, AgentName.DONE)
+    assert result.next_agent in (AgentName.ASSESSMENT, AgentName.PROFILER)
     if result.next_agent == AgentName.ASSESSMENT:
         assert result.stage == ConversationStage.ASSESSMENT
+        assert result.awaiting_input is False
+    else:
+        assert result.awaiting_input is True  # paused, resumes at PROFILER next turn
 
 
 def test_profiler_merges_across_turns_without_duplicating():

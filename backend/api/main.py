@@ -20,6 +20,7 @@ import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from backend.agents.explainer import explain_node as run_explainer
@@ -38,6 +39,15 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Learning Path Recommender API", lifespan=lifespan)
+
+# Dev-only: allow the Vite dev server to call this API. Tighten to the real
+# deployed frontend origin before shipping.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 def _not_implemented(step: str) -> HTTPException:
@@ -93,7 +103,19 @@ def chat(payload: ChatRequest):
     turns_before = len(state.conversation_history)
 
     graph = build_graph()
-    result = graph.invoke(state)
+    try:
+        result = graph.invoke(state)
+    except Exception as exc:
+        # Agents fail loud on bad LLM output after one retry (per
+        # docs/final_decisions.md reliability requirements) - that's correct
+        # internally, but this is the API boundary: never let it crash the
+        # connection with no response (which browsers misreport as a CORS
+        # error). Degrade gracefully instead; the session in Postgres is
+        # untouched since we never reached db.save_state below.
+        raise HTTPException(
+            status_code=502,
+            detail="The assistant had trouble processing that - please try again.",
+        ) from exc
     new_state = AppState.model_validate(dict(result))
 
     if len(new_state.conversation_history) > turns_before:

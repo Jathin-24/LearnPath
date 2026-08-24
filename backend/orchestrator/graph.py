@@ -7,8 +7,24 @@ wiring itself). Build order step 6 replaces stubs with real agents one at a
 time in build_graph() below - the wiring/routing mechanics don't change,
 only which function is registered for each node.
 
-Routing is centralized: every node sets state.next_agent before returning,
-and the same route_next() function reads it after every node.
+Two separate routing functions, not one, because "where do we resume" and
+"should this invocation stop" are different questions:
+  - route_entry (conditional entry point): always trusts next_agent to pick
+    where a resumed session starts - a paused agent points next_agent at
+    ITSELF (e.g. Assessment mid-quiz sets next_agent=ASSESSMENT), so the next
+    /chat call re-enters that same node with the learner's new message.
+  - route_next (conditional edges, checked after a node runs): checks
+    state.awaiting_input FIRST. If the node just paused (awaiting_input=True),
+    route straight to END regardless of next_agent - otherwise a
+    self-pointing next_agent would make LangGraph loop back into the same
+    node again within this same invocation instead of stopping to wait for
+    the learner. Only once awaiting_input is False does it fall through to
+    next_agent, which is how Assessment -> Path-A -> Roadmap Generator still
+    cascade automatically within one /chat call.
+See state_schema.py's awaiting_input field docstring for the full reasoning
+(this bug was caught live: a second /chat call was silently dropped because
+next_agent="done" was being reused as the resume target, so the conditional
+entry point routed straight to END instead of back into Assessment).
 
 Path A only for now. Path-B / Project Generator are not nodes yet; if
 next_agent is ever set to one of those, LangGraph raises a KeyError rather
@@ -47,19 +63,21 @@ def _stub_node(agent: AgentName, next_agent: AgentName):
     return node
 
 
+def route_entry(state: AppState) -> str:
+    return state.next_agent.value
+
+
 def route_next(state: AppState) -> str:
+    if state.awaiting_input:
+        return AgentName.DONE.value
     return state.next_agent.value
 
 
 def _wire(builder: StateGraph) -> None:
-    # Conditional entry point, not a fixed one: a resumed session's state
-    # already has next_agent pointing at wherever it paused (e.g. ASSESSMENT,
-    # waiting on the learner's quiz answers) - a fixed entry point would
-    # re-run Profiler from scratch on every /chat call instead of resuming.
     routing_map = {agent.value: agent.value for agent in _REAL_NODES}
     routing_map[AgentName.DONE.value] = END
 
-    builder.set_conditional_entry_point(route_next, routing_map)
+    builder.set_conditional_entry_point(route_entry, routing_map)
 
     for agent in _REAL_NODES:
         builder.add_conditional_edges(agent.value, route_next, routing_map)

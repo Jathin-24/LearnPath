@@ -93,15 +93,15 @@ def run_profiler(state: AppState, llm_client: LLMClient | None = None) -> AppSta
     prompt = _build_prompt(state)
 
     try:
-        raw = client.complete(prompt, max_tokens=600)
+        raw = client.complete(prompt, max_tokens=900)
         output = _parse_llm_output(raw)
     except (json.JSONDecodeError, ValidationError):
         stricter_prompt = prompt + (
-            "\n\nYour previous response must be retried. Respond with ONLY the "
-            "raw JSON object described above - no markdown fences, no commentary, "
-            "no text before or after the JSON."
+            "\n\nYour previous response must be retried. Keep assistant_reply under "
+            "3 sentences. Respond with ONLY the raw JSON object described above - no "
+            "markdown fences, no commentary, no text before or after the JSON."
         )
-        raw = client.complete(stricter_prompt, max_tokens=600)
+        raw = client.complete(stricter_prompt, max_tokens=900)
         output = _parse_llm_output(raw)  # let this raise if it fails again - fail loud
 
     profile = state.learner_profile
@@ -128,7 +128,12 @@ def run_profiler(state: AppState, llm_client: LLMClient | None = None) -> AppSta
     if output.ready_for_assessment:
         state.stage = ConversationStage.ASSESSMENT
         state.next_agent = AgentName.ASSESSMENT
+        state.awaiting_input = False
     else:
-        state.next_agent = AgentName.DONE  # pause here, wait for the learner's next message
+        # Pause here, waiting for the learner's next message - next_agent
+        # points at PROFILER itself so the next /chat call resumes here
+        # instead of restarting or silently terminating (see graph.py).
+        state.next_agent = AgentName.PROFILER
+        state.awaiting_input = True
 
     return state

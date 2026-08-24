@@ -23,4 +23,11 @@ def test_real_profiler_then_stub_chain_terminates():
     assert visited[0] == AgentName.PROFILER
     if len(visited) > 1:
         assert visited[1] == AgentName.ASSESSMENT
-    assert result["next_agent"] == AgentName.DONE
+
+    # Either the graph paused mid-conversation (next_agent points at whichever
+    # agent should resume, awaiting_input=True) or it cascaded all the way
+    # through to a genuine terminal DONE (Roadmap Generator finished).
+    if result["awaiting_input"]:
+        assert result["next_agent"] in (AgentName.PROFILER, AgentName.ASSESSMENT)
+    else:
+        assert result["next_agent"] == AgentName.DONE

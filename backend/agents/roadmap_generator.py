@@ -67,7 +67,7 @@ def _generate_node_content(client: LLMClient, topic: str, course_summary: str | 
     prompt = _build_prompt(topic, course_summary)
 
     def attempt(p: str) -> NodeContentOutput:
-        output = NodeContentOutput.model_validate(_parse_json(client.complete(p, max_tokens=1000)))
+        output = NodeContentOutput.model_validate(_parse_json(client.complete(p, max_tokens=1500)))
         if len(output.questions) != QUESTIONS_PER_NODE:
             raise ValueError(f"expected {QUESTIONS_PER_NODE} questions, got {len(output.questions)}")
         return output

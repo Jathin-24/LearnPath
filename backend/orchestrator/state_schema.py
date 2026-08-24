@@ -216,6 +216,18 @@ class AppState(BaseModel):
     # graded; the durable result lives in skill_gap_map.assessments.
     pending_quiz: list[MCQQuestion] = Field(default_factory=list)
 
+    # True when the CURRENTLY-active agent (next_agent) is mid-conversation,
+    # waiting on the learner's next message, rather than ready to hand off to
+    # a different agent. Needed because next_agent alone is ambiguous: it has
+    # to mean both "who resumes on the next /chat call" (which must point at
+    # the paused agent itself, e.g. ASSESSMENT) AND "should this graph
+    # invocation stop now" - a node can't signal both with one enum value
+    # without conflating "pause and resume here" with "terminate". The graph's
+    # conditional entry point always trusts next_agent to pick where to
+    # resume; the conditional edges check awaiting_input first and stop the
+    # cascade (route to DONE/END) before ever consulting next_agent.
+    awaiting_input: bool = False
+
     def log(self, agent: AgentName, event_type: str, detail: str = "") -> None:
         self.progress_log.append(
             ProgressEvent(agent=agent, event_type=event_type, detail=detail)

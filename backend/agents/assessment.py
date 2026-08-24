@@ -67,6 +67,7 @@ def _present_checklist(state: AppState) -> AppState:
     if not candidates:
         state.log(AgentName.ASSESSMENT, "checklist_skipped", "no matching dataset concepts")
         state.next_agent = AgentName.PATH_A
+        state.awaiting_input = False
         return state
 
     bullet_list = "\n".join(f"- {c}" for c in candidates)
@@ -77,7 +78,10 @@ def _present_checklist(state: AppState) -> AppState:
     )
     state.conversation_history.append(ChatTurn(role="assistant", content=reply))
     state.log(AgentName.ASSESSMENT, "checklist_presented", detail=f"{len(candidates)} concepts")
-    state.next_agent = AgentName.DONE
+    # Pause here, waiting for the learner's reply - next_agent points at
+    # ASSESSMENT itself so the next /chat call resumes here (see graph.py).
+    state.next_agent = AgentName.ASSESSMENT
+    state.awaiting_input = True
     return state
 
 
@@ -156,6 +160,7 @@ def _generate_quiz(state: AppState, client: LLMClient) -> AppState:
         reply = f"{QUIZ_MARKER}No worries - we'll build your roadmap from scratch on these topics."
         state.conversation_history.append(ChatTurn(role="assistant", content=reply))
         state.next_agent = AgentName.PATH_A
+        state.awaiting_input = False
         return state
 
     for concept in confirmed:
@@ -181,7 +186,10 @@ def _generate_quiz(state: AppState, client: LLMClient) -> AppState:
     )
     state.conversation_history.append(ChatTurn(role="assistant", content=reply))
     state.log(AgentName.ASSESSMENT, "quiz_generated", detail=f"{len(quiz.questions)} questions")
-    state.next_agent = AgentName.DONE
+    # Pause here, waiting for the learner's answers - next_agent points at
+    # ASSESSMENT itself so the next /chat call resumes here (see graph.py).
+    state.next_agent = AgentName.ASSESSMENT
+    state.awaiting_input = True
     return state
 
 
@@ -241,6 +249,7 @@ def _grade_quiz(state: AppState, client: LLMClient) -> AppState:
     state.log(AgentName.ASSESSMENT, "quiz_graded", detail=f"{correct}/{n} correct")
     state.pending_quiz = []
     state.next_agent = AgentName.PATH_A
+    state.awaiting_input = False
     return state
 
 
