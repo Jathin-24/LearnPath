@@ -168,7 +168,7 @@ def chat(payload: ChatRequest):
     if state.stage in (ConversationStage.ROADMAP_REVIEW, ConversationStage.IN_PROGRESS):
         state.conversation_history.append(ChatTurn(role="user", content=payload.message))
         reply = run_topic_tutor(state, payload.message)
-        state.conversation_history.append(ChatTurn(role="assistant", content=reply))
+        state.conversation_history.append(ChatTurn(role="assistant", content=reply, agent=AgentName.TUTOR))
         db.save_state(state)
         return {"state": state, "assistant_message": reply}
 

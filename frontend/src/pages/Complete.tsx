@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getState, restartGoal } from "../api";
 import NavBar from "../components/NavBar";
+import PageSkeleton from "../components/Skeleton";
 import { getSessionId } from "../session";
 import type { AppState } from "../types";
 
@@ -69,8 +70,9 @@ export default function Complete() {
 
   if (!state) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-400">
-        Loading...
+      <div className="min-h-screen bg-slate-950 text-white">
+        <NavBar hasRoadmap />
+        <PageSkeleton />
       </div>
     );
   }
@@ -83,8 +85,8 @@ export default function Complete() {
     <div className="min-h-screen bg-slate-950 text-white">
       <NavBar hasRoadmap />
       <div className="mx-auto max-w-2xl px-6 py-12 text-center">
-        <div className="text-5xl">🎉</div>
-        <h1 className="mt-4 text-4xl font-bold">Roadmap Complete!</h1>
+        <div className="animate-celebrate text-5xl">🎉</div>
+        <h1 className="animate-celebrate mt-4 text-4xl font-bold">Roadmap Complete!</h1>
         <p className="mt-3 text-slate-400">
           You finished every topic in your roadmap for{" "}
           <span className="text-slate-200">{state.learner_profile.goal ?? "your goal"}</span>.

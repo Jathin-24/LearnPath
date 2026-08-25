@@ -65,6 +65,7 @@ class AgentName(str, Enum):
     ROADMAP_GENERATOR = "roadmap_generator"
     PROJECT_GENERATOR = "project_generator"
     EXPLAINER = "explainer"
+    TUTOR = "tutor"
     DONE = "done"                # sentinel: graph should terminate this turn
 
 
@@ -224,6 +225,11 @@ class ChatTurn(BaseModel):
     role: str               # "user" | "assistant"
     content: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+    # Which agent produced this turn - None for the default onboarding
+    # chain (Profiler/Assessment), set explicitly for turns the frontend
+    # should style differently (currently just the Topic Tutor - see
+    # backend/agents/tutor.py and frontend/src/components/ChatBubble.tsx).
+    agent: Optional[AgentName] = None
 
 
 class AppState(BaseModel):

@@ -26,6 +26,7 @@ export type AgentName =
   | "roadmap_generator"
   | "project_generator"
   | "explainer"
+  | "tutor"
   | "done";
 
 export type OccupationStatus = "student" | "working_professional";
@@ -125,6 +126,7 @@ export interface ChatTurn {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+  agent: AgentName | null;
 }
 
 export interface AppState {

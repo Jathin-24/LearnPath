@@ -4,6 +4,7 @@ import { getDashboard, getState } from "../api";
 import NavBar from "../components/NavBar";
 import RoadmapGraph from "../components/RoadmapGraph";
 import RoadmapList from "../components/RoadmapList";
+import PageSkeleton from "../components/Skeleton";
 import SkillRadarChart from "../components/SkillRadarChart";
 import { getSessionId } from "../session";
 import type { AppState, DashboardResponse } from "../types";
@@ -33,8 +34,9 @@ export default function Dashboard() {
 
   if (!sessionId || !dashboard || !state) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-400">
-        Loading your dashboard...
+      <div className="min-h-screen bg-slate-950 text-white">
+        <NavBar />
+        <PageSkeleton />
       </div>
     );
   }

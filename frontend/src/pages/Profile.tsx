@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { getState, restartGoal, updateProfile, uploadResume } from "../api";
 import NavBar from "../components/NavBar";
+import PageSkeleton from "../components/Skeleton";
 import { getSessionId } from "../session";
 import type { AppState, OccupationStatus } from "../types";
 
@@ -161,8 +162,9 @@ export default function Profile() {
 
   if (!sessionId || !state) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-400">
-        Loading your profile...
+      <div className="min-h-screen bg-slate-950 text-white">
+        <NavBar />
+        <PageSkeleton />
       </div>
     );
   }

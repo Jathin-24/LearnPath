@@ -11,6 +11,7 @@ import {
 import NavBar from "../components/NavBar";
 import QuizForm from "../components/QuizForm";
 import QuizResults from "../components/QuizResults";
+import PageSkeleton from "../components/Skeleton";
 import { getSessionId } from "../session";
 import type { AppState, QuestionResult, RoadmapNode } from "../types";
 
@@ -154,8 +155,9 @@ export default function TopicDetail() {
 
   if (!state || !node) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-400">
-        Loading...
+      <div className="min-h-screen bg-slate-950 text-white">
+        <NavBar hasRoadmap />
+        <PageSkeleton />
       </div>
     );
   }
@@ -265,11 +267,13 @@ export default function TopicDetail() {
                 <div
                   className={`rounded-xl border p-4 ${
                     result.passed
-                      ? "border-green-700 bg-green-900/30"
+                      ? "animate-celebrate border-green-700 bg-green-900/30"
                       : "border-red-700 bg-red-900/30"
                   }`}
                 >
-                  <p className="font-medium">{result.passed ? "Passed!" : "Not quite there yet."}</p>
+                  <p className="font-medium">
+                    {result.passed ? "🎉 Passed!" : "Not quite there yet."}
+                  </p>
                   <p className="text-sm text-slate-300">Score: {Math.round(result.score * 100)}%</p>
                   {result.results.length > 0 && (
                     <div className="mt-3">

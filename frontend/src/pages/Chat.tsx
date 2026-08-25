@@ -5,6 +5,7 @@ import ChatBubble from "../components/ChatBubble";
 import NavBar from "../components/NavBar";
 import QuizForm from "../components/QuizForm";
 import QuizResults from "../components/QuizResults";
+import PageSkeleton from "../components/Skeleton";
 import { routeForStage } from "../routing";
 import { getSessionId } from "../session";
 import type { AppState, QuestionResult } from "../types";
@@ -120,8 +121,9 @@ export default function Chat() {
 
   if (!sessionId || !state) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-400">
-        Loading...
+      <div className="min-h-screen bg-slate-950 text-white">
+        <NavBar />
+        <PageSkeleton />
       </div>
     );
   }
@@ -163,7 +165,7 @@ export default function Chat() {
           />
         )}
         {history.map((turn, i) => (
-          <ChatBubble key={i} role={turn.role} content={turn.content} />
+          <ChatBubble key={i} role={turn.role} content={turn.content} agent={turn.agent} />
         ))}
         {sending && <ChatBubble role="assistant" content="..." />}
 
