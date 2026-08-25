@@ -6,6 +6,8 @@ import Dashboard from "./pages/Dashboard";
 import TopicDetail from "./pages/TopicDetail";
 import Complete from "./pages/Complete";
 import ImportContext from "./pages/ImportContext";
+import Profile from "./pages/Profile";
+import Analytics from "./pages/Analytics";
 
 export default function App() {
   return (
@@ -19,6 +21,8 @@ export default function App() {
         <Route path="/topic/:nodeId" element={<TopicDetail />} />
         <Route path="/complete" element={<Complete />} />
         <Route path="/import" element={<ImportContext />} />
+        <Route path="/profile" element={<Profile />} />
+        <Route path="/analytics" element={<Analytics />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>

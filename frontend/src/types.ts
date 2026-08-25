@@ -35,6 +35,7 @@ export interface LearnerProfile {
   stated_known_skills: string[];
   prior_learning_history: string[];
   imported_context_raw: string | null;
+  resume_raw: string | null;
 }
 
 export interface ConceptAssessment {
@@ -81,6 +82,8 @@ export interface RoadmapNode {
   external_prerequisite_concepts: string[];
   project: ProjectAssignment | null;
   assessment: TopicAssessment | null;
+  completed_at: string | null;
+  time_spent_seconds: number;
 }
 
 export interface Roadmap {
@@ -120,4 +123,10 @@ export interface DashboardResponse {
   skill_radar: Record<string, ConceptStatus>;
   current_node: RoadmapNode | null;
   next_recommended_action: string;
+}
+
+export interface AnalyticsResponse {
+  quiz_pass_rate: number;
+  topics_completed_this_week: number;
+  total_time_spent_seconds: number;
 }

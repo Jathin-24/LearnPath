@@ -41,10 +41,26 @@ export default function Dashboard() {
 
   const availableNode = state.roadmap?.nodes.find((n) => n.status === "available");
 
+  // Reminder: purely derived from data already on state, no backend call.
+  // If it's been a while since the last logged activity, nudge them back.
+  const lastActivity = state.progress_log.at(-1)?.timestamp;
+  const daysSinceActivity = lastActivity
+    ? (Date.now() - new Date(lastActivity).getTime()) / (1000 * 60 * 60 * 24)
+    : 0;
+  const showReminder = daysSinceActivity >= 1;
+
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <NavBar />
       <div className="mx-auto max-w-5xl space-y-6 px-6 py-8">
+        {showReminder && (
+          <div className="rounded-lg border border-indigo-800 bg-indigo-950/40 px-4 py-3 text-sm text-indigo-200">
+            Welcome back! It's been {Math.floor(daysSinceActivity)} day
+            {Math.floor(daysSinceActivity) === 1 ? "" : "s"} since your last activity -
+            let's pick up where you left off.
+          </div>
+        )}
+
         <div>
           <h1 className="text-2xl font-bold">Dashboard</h1>
           <div className="mt-3 h-3 w-full overflow-hidden rounded-full bg-slate-800">

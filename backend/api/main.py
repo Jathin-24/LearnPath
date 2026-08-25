@@ -19,6 +19,7 @@ is its own route, not just an internal side effect of /chat.
 import io
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 
 import bcrypt
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -294,6 +295,7 @@ def submit_assessment(node_id: str, payload: AssessmentSubmitRequest):
 
     if passed:
         node.status = NodeStatus.COMPLETE
+        node.completed_at = datetime.now(timezone.utc)
         _unlock_dependents(state, node_id)
 
     state.log(
@@ -303,6 +305,90 @@ def submit_assessment(node_id: str, payload: AssessmentSubmitRequest):
     )
     db.save_state(state)
     return {"score": score, "passed": passed, "node_status": node.status}
+
+
+class TimeSpentRequest(BaseModel):
+    session_id: str
+    seconds: int
+
+
+@app.post("/topic/{node_id}/time")
+def record_time_spent(node_id: str, payload: TimeSpentRequest):
+    state = _load_or_404(payload.session_id)
+    if state.roadmap is None:
+        raise HTTPException(status_code=400, detail="No roadmap for this session")
+    node = state.roadmap.get_node(node_id)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"No node {node_id!r} in this roadmap")
+
+    node.time_spent_seconds += max(0, payload.seconds)
+    db.save_state(state)
+    return {"time_spent_seconds": node.time_spent_seconds}
+
+
+class ProfileUpdateRequest(BaseModel):
+    session_id: str
+    goal: str | None = None
+    timeline: str | None = None
+    interests: list[str] | None = None
+    stated_known_skills: list[str] | None = None
+    prior_learning_history: list[str] | None = None
+
+
+@app.patch("/profile")
+def update_profile(payload: ProfileUpdateRequest):
+    state = _load_or_404(payload.session_id)
+    profile = state.learner_profile
+
+    if payload.goal is not None:
+        profile.goal = payload.goal
+    if payload.timeline is not None:
+        profile.timeline = payload.timeline
+    if payload.interests is not None:
+        profile.interests = payload.interests
+    if payload.stated_known_skills is not None:
+        profile.stated_known_skills = payload.stated_known_skills
+    if payload.prior_learning_history is not None:
+        profile.prior_learning_history = payload.prior_learning_history
+
+    db.save_state(state)
+    return {"state": state}
+
+
+@app.get("/analytics/{session_id}")
+def analytics(session_id: str):
+    state = _load_or_404(session_id)
+
+    attempted_nodes = 0
+    passed_nodes = 0
+    total_time_seconds = 0
+    completed_this_week = 0
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+
+    if state.roadmap is not None:
+        for node in state.roadmap.nodes:
+            total_time_seconds += node.time_spent_seconds
+            if node.assessment is not None and node.assessment.attempts > 0:
+                attempted_nodes += 1
+                if node.status == NodeStatus.COMPLETE:
+                    passed_nodes += 1
+            if node.completed_at is not None:
+                completed_at = node.completed_at
+                if completed_at.tzinfo is None:
+                    completed_at = completed_at.replace(tzinfo=timezone.utc)
+                if completed_at >= week_ago:
+                    completed_this_week += 1
+
+    # Fraction of attempted topics eventually passed - not attempts/passes,
+    # since TopicAssessment only tracks a running attempt count + last_score,
+    # not a per-attempt pass/fail history.
+    pass_rate = (passed_nodes / attempted_nodes) if attempted_nodes else 0.0
+
+    return {
+        "quiz_pass_rate": round(pass_rate, 2),
+        "topics_completed_this_week": completed_this_week,
+        "total_time_spent_seconds": total_time_seconds,
+    }
 
 
 @app.get("/dashboard/{session_id}")

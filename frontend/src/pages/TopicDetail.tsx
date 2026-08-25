@@ -1,10 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { explainNode, getState, submitAssessment } from "../api";
+import { explainNode, getState, recordTimeSpent, submitAssessment } from "../api";
 import NavBar from "../components/NavBar";
 import QuizForm from "../components/QuizForm";
 import { getSessionId } from "../session";
 import type { AppState, RoadmapNode } from "../types";
+
+function formatTimer(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
 
 export default function TopicDetail() {
   const { nodeId } = useParams<{ nodeId: string }>();
@@ -16,6 +22,10 @@ export default function TopicDetail() {
   const [explaining, setExplaining] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<{ score: number; passed: boolean } | null>(null);
+  const [displaySeconds, setDisplaySeconds] = useState(0);
+
+  const secondsRef = useRef(0);
+  const lastFlushRef = useRef(0);
 
   useEffect(() => {
     if (!sessionId || !nodeId) {
@@ -27,6 +37,40 @@ export default function TopicDetail() {
       setNode(state.roadmap?.nodes.find((n) => n.node_id === nodeId) ?? null);
     });
   }, [sessionId, nodeId, navigate]);
+
+  // Study timer: ticks locally every second, periodically flushes the
+  // accumulated delta to the backend (best-effort - never blocks the UI),
+  // and flushes whatever's left on unmount/navigation away.
+  useEffect(() => {
+    if (!sessionId || !nodeId) return;
+
+    secondsRef.current = 0;
+    lastFlushRef.current = 0;
+    setDisplaySeconds(0);
+
+    const tick = setInterval(() => {
+      secondsRef.current += 1;
+      setDisplaySeconds(secondsRef.current);
+    }, 1000);
+
+    const flush = () => {
+      const unsent = secondsRef.current - lastFlushRef.current;
+      if (unsent > 0) {
+        lastFlushRef.current = secondsRef.current;
+        recordTimeSpent(sessionId, nodeId, unsent).catch(() => {
+          // best-effort - a lost timer tick shouldn't interrupt studying
+        });
+      }
+    };
+
+    const flushInterval = setInterval(flush, 30000);
+
+    return () => {
+      clearInterval(tick);
+      clearInterval(flushInterval);
+      flush();
+    };
+  }, [sessionId, nodeId]);
 
   async function handleExplain() {
     if (!sessionId || !nodeId) return;
@@ -68,7 +112,15 @@ export default function TopicDetail() {
       <div className="mx-auto grid max-w-5xl gap-6 px-6 py-8 md:grid-cols-[2fr_1fr]">
         <div className="space-y-6">
           <div>
-            <h1 className="text-2xl font-bold">{node.topic}</h1>
+            <div className="flex items-center justify-between gap-3">
+              <h1 className="text-2xl font-bold">{node.topic}</h1>
+              <span
+                title="Time spent on this topic this session"
+                className="shrink-0 rounded-full bg-slate-900 px-3 py-1 text-xs font-mono text-slate-400"
+              >
+                {formatTimer(displaySeconds)}
+              </span>
+            </div>
             {node.course_summary && (
               <p className="mt-2 text-sm text-slate-400">{node.course_summary}</p>
             )}

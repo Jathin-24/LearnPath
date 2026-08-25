@@ -1,7 +1,7 @@
 // Typed wrapper around every backend/api/main.py route the frontend uses.
 // One function per route - see docs/api_contract.md for the canonical spec.
 
-import type { AppState, DashboardResponse } from "./types";
+import type { AnalyticsResponse, AppState, DashboardResponse } from "./types";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
@@ -95,6 +95,36 @@ export function submitAssessment(
 
 export function getDashboard(sessionId: string): Promise<DashboardResponse> {
   return request(`/dashboard/${sessionId}`);
+}
+
+export interface ProfileUpdate {
+  goal?: string;
+  timeline?: string;
+  interests?: string[];
+  stated_known_skills?: string[];
+  prior_learning_history?: string[];
+}
+
+export function updateProfile(sessionId: string, update: ProfileUpdate): Promise<{ state: AppState }> {
+  return request("/profile", {
+    method: "PATCH",
+    body: JSON.stringify({ session_id: sessionId, ...update }),
+  });
+}
+
+export function recordTimeSpent(
+  sessionId: string,
+  nodeId: string,
+  seconds: number,
+): Promise<{ time_spent_seconds: number }> {
+  return request(`/topic/${nodeId}/time`, {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId, seconds }),
+  });
+}
+
+export function getAnalytics(sessionId: string): Promise<AnalyticsResponse> {
+  return request(`/analytics/${sessionId}`);
 }
 
 export async function uploadResume(sessionId: string, file: File): Promise<{ state: AppState }> {

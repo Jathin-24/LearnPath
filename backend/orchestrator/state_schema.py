@@ -156,6 +156,12 @@ class RoadmapNode(BaseModel):
     project: Optional[ProjectAssignment] = None
     assessment: Optional[TopicAssessment] = None
 
+    # Analytics/Timer support (set when the node's assessment is passed /
+    # while the learner has the Topic Detail page open - see
+    # backend/api/main.py's /analytics and /topic/{id}/time routes)
+    completed_at: Optional[datetime] = None
+    time_spent_seconds: int = 0
+
 
 class Roadmap(BaseModel):
     path_type: PathType

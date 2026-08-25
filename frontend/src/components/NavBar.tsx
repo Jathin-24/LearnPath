@@ -6,6 +6,8 @@ const LINKS = [
   { to: "/roadmap", label: "Roadmap" },
   { to: "/chat", label: "Chat" },
   { to: "/import", label: "Import AI Context" },
+  { to: "/profile", label: "Profile" },
+  { to: "/analytics", label: "Analytics" },
 ];
 
 export default function NavBar() {
