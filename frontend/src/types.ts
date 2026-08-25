@@ -26,6 +26,7 @@ export type AgentName =
   | "roadmap_generator"
   | "project_generator"
   | "explainer"
+  | "tutor"
   | "done";
 
 export type OccupationStatus = "student" | "working_professional";
@@ -61,12 +62,22 @@ export interface SkillGapMap {
 export interface ProjectAssignment {
   title: string;
   description: string;
+  success_criteria: string[];
 }
 
 export interface MCQQuestion {
   question: string;
   options: string[];
   correct_option_index: number;
+  explanation: string;
+}
+
+export interface QuestionResult {
+  question: string;
+  your_answer: string;
+  correct_answer: string;
+  correct: boolean;
+  explanation: string;
 }
 
 export interface TopicAssessment {
@@ -95,6 +106,7 @@ export interface RoadmapNode {
   time_spent_seconds: number;
   key_concepts: string[];
   estimated_days: number;
+  notes: string;
 }
 
 export interface Roadmap {
@@ -114,6 +126,7 @@ export interface ChatTurn {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+  agent: AgentName | null;
 }
 
 export interface AppState {
@@ -127,6 +140,7 @@ export interface AppState {
   next_agent: AgentName;
   last_user_message: string | null;
   pending_quiz: MCQQuestion[];
+  pending_checklist_concepts: string[];
 }
 
 export interface DashboardResponse {

@@ -27,10 +27,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pypdf import PdfReader
 
+from backend.agents.assessment import grade_pending_quiz, submit_checklist_concepts
 from backend.agents.explainer import explain_node as run_explainer
 from backend.agents.path_a import run_path_a
+from backend.agents.path_b import run_path_b
 from backend.agents.roadmap_generator import run_roadmap_generator
+from backend.agents.tutor import run_topic_tutor
 from backend.common import db
+from backend.common.grading import grade_mcq_batch
 from backend.common.llm_client import LLMClient
 from backend.orchestrator.graph import build_graph
 from backend.orchestrator.state_schema import (
@@ -38,8 +42,10 @@ from backend.orchestrator.state_schema import (
     AppState,
     ChatTurn,
     ConversationStage,
+    LearnerProfile,
     NodeStatus,
     PathType,
+    SkillGapMap,
 )
 
 
@@ -154,20 +160,17 @@ def chat(payload: ChatRequest):
     state = _load_or_404(payload.session_id)
 
     # Stay single-topic-focused: once a roadmap exists and is active, don't
-    # let a stray chat message quietly try to start a second goal/roadmap -
-    # that's exactly the "overloading of information" the user asked to
-    # avoid. Redirect deterministically instead of invoking the graph at all.
+    # invoke the full Profiler/Assessment graph again (which would try to
+    # treat this as a second onboarding conversation). Instead, answer
+    # through the Topic Tutor - grounded in the learner's current topic, and
+    # only redirecting (in a natural reply, not a canned string) if they're
+    # clearly trying to start something unrelated. See agents/tutor.py.
     if state.stage in (ConversationStage.ROADMAP_REVIEW, ConversationStage.IN_PROGRESS):
-        redirect = (
-            f"You're currently working through your roadmap"
-            f"{f' for {state.learner_profile.goal!r}' if state.learner_profile.goal else ''}. "
-            "Let's finish that one topic at a time - head to your Dashboard to continue, "
-            "or visit your Profile if you want to start fresh with a new goal."
-        )
         state.conversation_history.append(ChatTurn(role="user", content=payload.message))
-        state.conversation_history.append(ChatTurn(role="assistant", content=redirect))
+        reply = run_topic_tutor(state, payload.message)
+        state.conversation_history.append(ChatTurn(role="assistant", content=reply, agent=AgentName.TUTOR))
         db.save_state(state)
-        return {"state": state, "assistant_message": redirect}
+        return {"state": state, "assistant_message": reply}
 
     state.last_user_message = payload.message
     turns_before = len(state.conversation_history)
@@ -202,6 +205,85 @@ def chat(payload: ChatRequest):
     return {"state": new_state, "assistant_message": assistant_message}
 
 
+class ChecklistSubmitRequest(BaseModel):
+    session_id: str
+    confirmed_concepts: list[str]
+
+
+@app.post("/assessment/checklist/submit")
+def submit_checklist(payload: ChecklistSubmitRequest):
+    """Structured alternative to typing an answer into /chat during the
+    onboarding skill checklist - the frontend renders
+    state.pending_checklist_concepts as checkboxes (see Chat.tsx) and posts
+    the ones the learner ticked directly, so there's no free-text intent to
+    misparse. See assessment.py's module docstring for why this replaced
+    the old LLM-based extraction step."""
+    state = _load_or_404(payload.session_id)
+    if not state.pending_checklist_concepts:
+        raise HTTPException(status_code=400, detail="No checklist pending for this session")
+
+    client = LLMClient()
+    try:
+        state = submit_checklist_concepts(state, payload.confirmed_concepts, client)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Couldn't put your quiz together - please try again.",
+        ) from exc
+
+    # If nothing was confirmed, submit_checklist_concepts sets next_agent to
+    # PATH_A directly (no quiz to generate) - invoke the graph so that
+    # cascades into Path-A -> Roadmap Generator immediately, same as /chat
+    # and /assessment/quiz/submit do. When a quiz WAS generated instead
+    # (awaiting_input=True), this is a safe no-op pass-through: run_assessment
+    # sees pending_quiz set and just stays paused.
+    graph = build_graph()
+    try:
+        result = graph.invoke(state)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="The assistant had trouble processing that - please try again.",
+        ) from exc
+    new_state = AppState.model_validate(dict(result))
+
+    db.save_state(new_state)
+    return {"state": new_state}
+
+
+class OnboardingQuizSubmitRequest(BaseModel):
+    session_id: str
+    answers: list[str]  # one selected option string per question, in order
+
+
+@app.post("/assessment/quiz/submit")
+def submit_onboarding_quiz(payload: OnboardingQuizSubmitRequest):
+    """Structured alternative to typing answers into /chat for the
+    onboarding skill quiz - grading is deterministic (grade_pending_quiz),
+    then the graph is resumed from Path-A onward (same cascade /chat uses)
+    since next_agent/awaiting_input are already set for that by grading."""
+    state = _load_or_404(payload.session_id)
+    if not state.pending_quiz:
+        raise HTTPException(status_code=400, detail="No quiz pending for this session")
+
+    results = grade_pending_quiz(state, payload.answers)
+    state.next_agent = AgentName.PATH_A
+    state.awaiting_input = False
+
+    graph = build_graph()
+    try:
+        result = graph.invoke(state)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="The assistant had trouble building your roadmap - please try again.",
+        ) from exc
+    new_state = AppState.model_validate(dict(result))
+
+    db.save_state(new_state)
+    return {"state": new_state, "results": results}
+
+
 class ImportContextRequest(BaseModel):
     session_id: str
     imported_text: str
@@ -211,6 +293,37 @@ class ImportContextRequest(BaseModel):
 def import_context(payload: ImportContextRequest):
     state = _load_or_404(payload.session_id)
     state.learner_profile.imported_context_raw = payload.imported_text
+    db.save_state(state)
+    return {"state": state}
+
+
+@app.post("/goal/restart")
+def restart_goal(payload: SessionIdRequest):
+    """Start a fresh goal/roadmap - everything goal-specific (skills
+    assessed, roadmap, conversation) resets so the new Profiler
+    conversation starts clean, but identity fields (name/email/age/gender/
+    occupation) carry over since those don't change per-goal. This is what
+    the Tutor's mid-roadmap redirect and the Complete page both point the
+    learner to."""
+    state = _load_or_404(payload.session_id)
+    identity = state.learner_profile
+    state.learner_profile = LearnerProfile(
+        name=identity.name,
+        email=identity.email,
+        age=identity.age,
+        gender=identity.gender,
+        occupation_status=identity.occupation_status,
+        student_percentage=identity.student_percentage,
+        professional_role=identity.professional_role,
+    )
+    state.skill_gap_map = SkillGapMap()
+    state.roadmap = None
+    state.conversation_history = []
+    state.pending_quiz = []
+    state.pending_checklist_concepts = []
+    state.stage = ConversationStage.ONBOARDING
+    state.next_agent = AgentName.PROFILER
+    state.awaiting_input = False
     db.save_state(state)
     return {"state": state}
 
@@ -331,6 +444,30 @@ def explain_roadmap_node(node_id: str, payload: SessionIdRequest):
     return {"explanation": explanation}
 
 
+@app.post("/topic/{node_id}/refresh-web")
+def refresh_web_resources(node_id: str, payload: SessionIdRequest):
+    """'Find more resources' - works on any node, dataset-grounded or
+    web-sourced. Only adds/refreshes web_sources/youtube_links/
+    cheat_sheet_notes; never touches an already-filled node's project or
+    quiz - see path_b.py's module docstring."""
+    state = _load_or_404(payload.session_id)
+    if state.roadmap is None:
+        raise HTTPException(status_code=400, detail="No roadmap for this session")
+    if state.roadmap.get_node(node_id) is None:
+        raise HTTPException(status_code=404, detail=f"No node {node_id!r} in this roadmap")
+
+    try:
+        state = run_path_b(state, node_id=node_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Couldn't find more resources right now - please try again.",
+        ) from exc
+
+    db.save_state(state)
+    return {"state": state}
+
+
 class AssessmentSubmitRequest(BaseModel):
     session_id: str
     answers: list[str]  # one selected option string per question, in order
@@ -340,17 +477,22 @@ def _unlock_next_in_sequence(state: AppState) -> None:
     """Exactly one node AVAILABLE at a time, in roadmap order (already
     topologically sorted by Path-A) - not "everything whose prerequisites
     are met," per the user's explicit "complete everything one by one"
-    request. PATH_B_OPEN_WEB stub nodes are skipped: they have no way to be
-    completed until Path-B exists, so leaving them in the sequence would
-    permanently deadlock progression the first time one comes up."""
+    request. A PATH_B_OPEN_WEB node without an assessment yet is skipped -
+    an unfilled stub (roadmap_generator.py normally fills every stub with
+    real content via Path-B before ROADMAP_REVIEW, but never unlock one
+    that isn't actually completable). PATH_A_DATASET nodes are always
+    treated as unlockable regardless of assessment presence - several
+    tests build lightweight dataset-node fixtures without one, matching
+    how the rest of the app already assumes a dataset node is completable
+    once Roadmap Generator has run."""
     for node in state.roadmap.nodes:
-        if node.path_type == PathType.PATH_B_OPEN_WEB:
-            continue
         if node.status == NodeStatus.COMPLETE:
+            continue
+        if node.path_type == PathType.PATH_B_OPEN_WEB and node.assessment is None:
             continue
         if node.status == NodeStatus.LOCKED:
             node.status = NodeStatus.AVAILABLE
-        break  # first non-complete dataset node found, unlocked or not - stop
+        break  # first non-complete, completable node found, unlocked or not - stop
 
 
 @app.post("/topic/{node_id}/assessment/submit")
@@ -370,12 +512,7 @@ def submit_assessment(node_id: str, payload: AssessmentSubmitRequest):
         )
 
     questions = node.assessment.questions
-    correct = sum(
-        1
-        for q, a in zip(questions, payload.answers)
-        if 0 <= q.correct_option_index < len(q.options) and a == q.options[q.correct_option_index]
-    )
-    score = correct / len(questions) if questions else 0.0
+    score, results = grade_mcq_batch(questions, payload.answers)
     passed = score >= node.assessment.pass_threshold
 
     node.assessment.last_score = score
@@ -392,7 +529,7 @@ def submit_assessment(node_id: str, payload: AssessmentSubmitRequest):
         detail=f"{node_id}: {score:.2f} ({'pass' if passed else 'fail'})",
     )
     db.save_state(state)
-    return {"score": score, "passed": passed, "node_status": node.status}
+    return {"score": score, "passed": passed, "node_status": node.status, "results": results}
 
 
 class TimeSpentRequest(BaseModel):
@@ -412,6 +549,27 @@ def record_time_spent(node_id: str, payload: TimeSpentRequest):
     node.time_spent_seconds += max(0, payload.seconds)
     db.save_state(state)
     return {"time_spent_seconds": node.time_spent_seconds}
+
+
+class TopicNotesRequest(BaseModel):
+    session_id: str
+    notes: str
+
+
+@app.patch("/topic/{node_id}/notes")
+def update_topic_notes(node_id: str, payload: TopicNotesRequest):
+    """The learner's own free-text notes on a topic - never surfaced
+    anywhere else, purely their own reference."""
+    state = _load_or_404(payload.session_id)
+    if state.roadmap is None:
+        raise HTTPException(status_code=400, detail="No roadmap for this session")
+    node = state.roadmap.get_node(node_id)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"No node {node_id!r} in this roadmap")
+
+    node.notes = payload.notes
+    db.save_state(state)
+    return {"notes": node.notes}
 
 
 class ProfileUpdateRequest(BaseModel):

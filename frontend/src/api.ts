@@ -1,7 +1,7 @@
 // Typed wrapper around every backend/api/main.py route the frontend uses.
 // One function per route - see docs/api_contract.md for the canonical spec.
 
-import type { AnalyticsResponse, AppState, DashboardResponse } from "./types";
+import type { AnalyticsResponse, AppState, DashboardResponse, QuestionResult } from "./types";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
@@ -65,6 +65,13 @@ export function importContext(
   });
 }
 
+export function restartGoal(sessionId: string): Promise<{ state: AppState }> {
+  return request("/goal/restart", {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+}
+
 export function confirmRoadmap(sessionId: string): Promise<{ state: AppState }> {
   return request("/roadmap/confirm", {
     method: "POST",
@@ -90,6 +97,13 @@ export function skipRoadmapNode(sessionId: string, nodeId: string): Promise<{ st
   });
 }
 
+export function refreshWebResources(sessionId: string, nodeId: string): Promise<{ state: AppState }> {
+  return request(`/topic/${nodeId}/refresh-web`, {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+}
+
 export function explainNode(
   sessionId: string,
   nodeId: string,
@@ -104,8 +118,28 @@ export function submitAssessment(
   sessionId: string,
   nodeId: string,
   answers: string[],
-): Promise<{ score: number; passed: boolean; node_status: string }> {
+): Promise<{ score: number; passed: boolean; node_status: string; results: QuestionResult[] }> {
   return request(`/topic/${nodeId}/assessment/submit`, {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId, answers }),
+  });
+}
+
+export function submitChecklist(
+  sessionId: string,
+  confirmedConcepts: string[],
+): Promise<{ state: AppState }> {
+  return request("/assessment/checklist/submit", {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId, confirmed_concepts: confirmedConcepts }),
+  });
+}
+
+export function submitOnboardingQuiz(
+  sessionId: string,
+  answers: string[],
+): Promise<{ state: AppState; results: QuestionResult[] }> {
+  return request("/assessment/quiz/submit", {
     method: "POST",
     body: JSON.stringify({ session_id: sessionId, answers }),
   });
@@ -145,6 +179,17 @@ export function recordTimeSpent(
   return request(`/topic/${nodeId}/time`, {
     method: "POST",
     body: JSON.stringify({ session_id: sessionId, seconds }),
+  });
+}
+
+export function updateTopicNotes(
+  sessionId: string,
+  nodeId: string,
+  notes: string,
+): Promise<{ notes: string }> {
+  return request(`/topic/${nodeId}/notes`, {
+    method: "PATCH",
+    body: JSON.stringify({ session_id: sessionId, notes }),
   });
 }
 

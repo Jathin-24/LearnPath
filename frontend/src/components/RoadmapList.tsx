@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { reorderRoadmapNode, skipRoadmapNode } from "../api";
+import { refreshWebResources, reorderRoadmapNode, skipRoadmapNode } from "../api";
 import type { AppState, RoadmapNode } from "../types";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -56,6 +56,20 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
     }
   }
 
+  async function handleRefreshWeb(e: React.MouseEvent, nodeId: string) {
+    e.stopPropagation();
+    if (!sessionId || !onChanged) return;
+    setBusyNodeId(nodeId);
+    try {
+      const { state } = await refreshWebResources(sessionId, nodeId);
+      onChanged(state);
+    } catch {
+      // no-op - the button staying put communicates the failure well enough here
+    } finally {
+      setBusyNodeId(null);
+    }
+  }
+
   return (
     <div className="space-y-3">
       {nodes.map((node, i) => (
@@ -101,6 +115,56 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
             <div className="mt-2 rounded-md bg-slate-950 p-2">
               <p className="text-xs font-medium text-indigo-300">Project: {node.project.title}</p>
               <p className="mt-0.5 text-xs text-slate-400">{node.project.description}</p>
+              {node.project.success_criteria.length > 0 && (
+                <ul className="mt-1.5 space-y-0.5">
+                  {node.project.success_criteria.map((c, i) => (
+                    <li key={i} className="flex items-start gap-1 text-xs text-slate-500">
+                      <span className="mt-0.5 text-indigo-400">✓</span>
+                      <span>{c}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {node.cheat_sheet_notes && (
+            <details className="mt-2 rounded-md bg-slate-950 p-2">
+              <summary className="cursor-pointer text-xs font-medium text-indigo-300">
+                Study notes
+              </summary>
+              <p className="mt-1 whitespace-pre-wrap text-xs text-slate-400">
+                {node.cheat_sheet_notes}
+              </p>
+            </details>
+          )}
+
+          {(node.web_sources.length > 0 || node.youtube_links.length > 0) && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {node.web_sources.map((url) => (
+                <a
+                  key={url}
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-300 hover:text-indigo-300"
+                >
+                  🔗 {new URL(url).hostname.replace("www.", "")}
+                </a>
+              ))}
+              {node.youtube_links.map((url) => (
+                <a
+                  key={url}
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  className="rounded-full bg-red-950/50 px-2 py-0.5 text-xs text-red-300 hover:text-red-200"
+                >
+                  ▶ YouTube
+                </a>
+              ))}
             </div>
           )}
 
@@ -108,6 +172,18 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
             <p className="mt-2 text-xs text-slate-500">
               Requires: {node.internal_prerequisites.map((id) => topicById[id] ?? id).join(", ")}
             </p>
+          )}
+
+          {editable && (
+            <div className="mt-3 flex gap-2 border-t border-slate-800 pt-2">
+              <button
+                onClick={(e) => handleRefreshWeb(e, node.node_id)}
+                disabled={busyNodeId === node.node_id}
+                className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-700 disabled:opacity-30"
+              >
+                {busyNodeId === node.node_id ? "Searching..." : "🔎 Find more resources"}
+              </button>
+            </div>
           )}
 
           {editable && node.status === "locked" && (

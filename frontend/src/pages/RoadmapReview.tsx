@@ -4,6 +4,7 @@ import { confirmRoadmap, explainNode, getState } from "../api";
 import NavBar from "../components/NavBar";
 import RoadmapGraph from "../components/RoadmapGraph";
 import RoadmapList from "../components/RoadmapList";
+import PageSkeleton from "../components/Skeleton";
 import { getSessionId } from "../session";
 import type { AppState, RoadmapNode } from "../types";
 
@@ -27,8 +28,9 @@ export default function RoadmapReview() {
 
   if (!sessionId || !state || !state.roadmap) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-400">
-        Loading your roadmap...
+      <div className="min-h-screen bg-slate-950 text-white">
+        <NavBar hasRoadmap />
+        <PageSkeleton />
       </div>
     );
   }
@@ -63,7 +65,7 @@ export default function RoadmapReview() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
-      <NavBar />
+      <NavBar hasRoadmap />
       <div className="mx-auto max-w-5xl px-6 py-8">
         <div className="flex items-center justify-between">
           <div>

@@ -45,7 +45,12 @@ def test_generate_confirm_explain_submit_flow():
         available = [n for n in confirmed_state["roadmap"]["nodes"] if n["status"] == "available"]
         assert len(available) == 1, f"expected exactly one available node, got {len(available)}"
         current_node = available[0]
-        assert current_node["path_type"] == "path_a_dataset"  # stub nodes are skipped
+        # A node only becomes available once it's actually completable - see
+        # backend/api/main.py's _unlock_next_in_sequence. Roadmap Generator
+        # fills PATH_B_OPEN_WEB stubs via Path-B before ROADMAP_REVIEW too
+        # (backend/agents/path_b.py), so the first available node can now
+        # legitimately be either type as long as it has a real assessment.
+        assert current_node["assessment"] is not None
 
         explained = client.post(f"/roadmap/explain/{current_node['node_id']}", json={"session_id": session_id})
         assert explained.status_code == 200

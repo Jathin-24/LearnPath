@@ -31,6 +31,7 @@ import json
 
 from pydantic import BaseModel, ValidationError
 
+from backend.agents.path_b import run_path_b
 from backend.common import db
 from backend.common.llm_client import LLMClient
 from backend.orchestrator.state_schema import (
@@ -50,6 +51,7 @@ QUESTIONS_PER_NODE = 3
 class NodeContentOutput(BaseModel):
     project_title: str
     project_description: str
+    success_criteria: list[str]
     questions: list[MCQQuestion]
     estimated_days: int
 
@@ -59,30 +61,47 @@ def _parse_json(raw_text: str) -> dict:
     return json.loads(cleaned)
 
 
-def _build_prompt(topic: str, course_summary: str | None, timeline: str | None) -> str:
+def _build_prompt(
+    topic: str, course_summary: str | None, timeline: str | None, known_concepts: list[str]
+) -> str:
     summary_clause = f": {course_summary}" if course_summary else ""
     timeline_clause = f" The learner's overall timeline is: {timeline}." if timeline else ""
+    known_clause = (
+        f" The learner has already demonstrated (via quiz) that they know: "
+        f"{', '.join(known_concepts)} - keep the project and quiz appropriately challenging for "
+        f"someone at that level rather than re-teaching it from scratch, where this topic overlaps."
+        if known_concepts
+        else ""
+    )
     return f"""Generate a checkpoint project and a short assessment quiz for a learner \
-studying "{topic}"{summary_clause}.{timeline_clause}
+studying "{topic}"{summary_clause}.{timeline_clause}{known_clause}
 
 Respond with ONLY a JSON object (no markdown fences, no preamble) in this exact shape:
 {{
   "project_title": "short project title",
   "project_description": "2-3 sentences describing a hands-on project applying this topic",
+  "success_criteria": ["2-4 short, concrete bullet points describing what a completed, working \
+version of the project looks like"],
   "questions": [
-    {{"question": "...", "options": ["...", "...", "...", "..."], "correct_option_index": 0}}
+    {{"question": "...", "options": ["...", "...", "...", "..."], "correct_option_index": 0, \
+"explanation": "one sentence on why that answer is correct"}}
   ],
   "estimated_days": 5
 }}
-Write exactly {QUESTIONS_PER_NODE} questions, each with exactly 4 options. estimated_days is a
-realistic whole number of days for THIS one topic alone (not the whole roadmap), consistent
-with the learner's overall timeline if one was given."""
+Write exactly {QUESTIONS_PER_NODE} questions, each with exactly 4 options and an explanation
+(shown to the learner if they get it wrong). estimated_days is a realistic whole number of days
+for THIS one topic alone (not the whole roadmap), consistent with the learner's overall timeline
+if one was given."""
 
 
 def _generate_node_content(
-    client: LLMClient, topic: str, course_summary: str | None, timeline: str | None
+    client: LLMClient,
+    topic: str,
+    course_summary: str | None,
+    timeline: str | None,
+    known_concepts: list[str],
 ) -> NodeContentOutput:
-    prompt = _build_prompt(topic, course_summary, timeline)
+    prompt = _build_prompt(topic, course_summary, timeline, known_concepts)
 
     def attempt(p: str) -> NodeContentOutput:
         output = NodeContentOutput.model_validate(_parse_json(client.complete(p, max_tokens=1500)))
@@ -119,19 +138,30 @@ def run_roadmap_generator(state: AppState, llm_client: LLMClient | None = None) 
     client = llm_client or LLMClient()
 
     dataset_nodes = [n for n in state.roadmap.nodes if n.path_type == PathType.PATH_A_DATASET]
+    web_nodes = [n for n in state.roadmap.nodes if n.path_type == PathType.PATH_B_OPEN_WEB]
     was_reused = bool(dataset_nodes) and all(n.project is not None for n in dataset_nodes)
 
+    known_concepts = state.skill_gap_map.known()
     for node in dataset_nodes:
         if node.project is not None:
             continue  # already populated - this roadmap was reused from a template
         content = _generate_node_content(
-            client, node.topic, node.course_summary, state.learner_profile.timeline
+            client, node.topic, node.course_summary, state.learner_profile.timeline, known_concepts
         )
         node.project = ProjectAssignment(
-            title=content.project_title, description=content.project_description
+            title=content.project_title,
+            description=content.project_description,
+            success_criteria=content.success_criteria,
         )
         node.assessment = TopicAssessment(questions=content.questions)
         node.estimated_days = max(1, content.estimated_days)
+
+    for node in web_nodes:
+        if node.project is not None:
+            continue  # already populated - reused from a template
+        # Fills project/quiz/cheat_sheet_notes/web_sources/youtube_links via
+        # web search + synthesis - see path_b.py's module docstring.
+        run_path_b(state, node_id=node.node_id, llm_client=client)
 
     state.stage = ConversationStage.ROADMAP_REVIEW
     state.log(

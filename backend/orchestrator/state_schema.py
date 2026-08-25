@@ -65,6 +65,7 @@ class AgentName(str, Enum):
     ROADMAP_GENERATOR = "roadmap_generator"
     PROJECT_GENERATOR = "project_generator"
     EXPLAINER = "explainer"
+    TUTOR = "tutor"
     DONE = "done"                # sentinel: graph should terminate this turn
 
 
@@ -130,12 +131,16 @@ class SkillGapMap(BaseModel):
 class ProjectAssignment(BaseModel):
     title: str
     description: str
+    success_criteria: list[str] = Field(default_factory=list)  # "success looks like" checklist
 
 
 class MCQQuestion(BaseModel):
     question: str
     options: list[str]                 # e.g. ["A. ...", "B. ...", "C. ...", "D. ..."]
     correct_option_index: int          # index into options
+    explanation: str = ""              # one sentence on why the correct answer is correct -
+                                        # generated alongside the question, shown on a wrong
+                                        # answer instead of leaving the learner with just a score
 
 
 class TopicAssessment(BaseModel):
@@ -180,6 +185,11 @@ class RoadmapNode(BaseModel):
     key_concepts: list[str] = Field(default_factory=list)
     estimated_days: int = 0
 
+    # The learner's own free-text notes on this topic - never shown or used
+    # anywhere else, purely their own reference (active recall/journaling).
+    # See backend/api/main.py's PATCH /topic/{node_id}/notes.
+    notes: str = ""
+
 
 class Roadmap(BaseModel):
     path_type: PathType
@@ -215,6 +225,11 @@ class ChatTurn(BaseModel):
     role: str               # "user" | "assistant"
     content: str
     timestamp: datetime = Field(default_factory=datetime.utcnow)
+    # Which agent produced this turn - None for the default onboarding
+    # chain (Profiler/Assessment), set explicitly for turns the frontend
+    # should style differently (currently just the Topic Tutor - see
+    # backend/agents/tutor.py and frontend/src/components/ChatBubble.tsx).
+    agent: Optional[AgentName] = None
 
 
 class AppState(BaseModel):
@@ -244,6 +259,14 @@ class AppState(BaseModel):
     # comparison rather than an LLM re-judging correctness. Cleared once
     # graded; the durable result lives in skill_gap_map.assessments.
     pending_quiz: list[MCQQuestion] = Field(default_factory=list)
+
+    # Scratch field for the Assessment Agent's checklist phase - candidate
+    # concepts shown to the learner as a checkbox list (see
+    # frontend/src/pages/Chat.tsx), confirmed via the dedicated
+    # POST /assessment/checklist/submit route rather than free-text chat
+    # parsing. Cleared once the learner confirms (or declines) their known
+    # concepts and the quiz phase begins.
+    pending_checklist_concepts: list[str] = Field(default_factory=list)
 
     # True when the CURRENTLY-active agent (next_agent) is mid-conversation,
     # waiting on the learner's next message, rather than ready to hand off to

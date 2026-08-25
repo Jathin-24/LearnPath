@@ -13,3 +13,4 @@ langgraph==0.2.60
 bcrypt==4.2.1
 python-multipart==0.0.20
 pypdf==5.1.0
+tavily-python==0.5.0

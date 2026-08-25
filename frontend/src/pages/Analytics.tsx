@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { getAnalytics } from "../api";
 import NavBar from "../components/NavBar";
+import PageSkeleton from "../components/Skeleton";
 import { getSessionId } from "../session";
 import type { AnalyticsResponse } from "../types";
 
@@ -43,8 +44,9 @@ export default function Analytics() {
 
   if (!sessionId || !analytics) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-400">
-        Loading your analytics...
+      <div className="min-h-screen bg-slate-950 text-white">
+        <NavBar hasRoadmap />
+        <PageSkeleton />
       </div>
     );
   }
@@ -62,7 +64,7 @@ export default function Analytics() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
-      <NavBar />
+      <NavBar hasRoadmap />
       <div className="mx-auto max-w-3xl space-y-6 px-6 py-8">
         <div>
           <h1 className="text-2xl font-bold">Your Analytics</h1>
