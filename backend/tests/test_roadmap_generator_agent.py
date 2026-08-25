@@ -43,7 +43,12 @@ def _fixed_state() -> AppState:
     return state
 
 
-def test_roadmap_generator_attaches_project_and_assessment_to_dataset_nodes_only():
+def test_roadmap_generator_attaches_project_and_assessment_to_dataset_and_web_nodes():
+    """PATH_A_DATASET nodes get project/quiz generated grounded in the
+    course; PATH_B_OPEN_WEB stub nodes get theirs via a real web search +
+    synthesis (backend/agents/path_b.py) - both fully filled by the time
+    ROADMAP_REVIEW is reached, so no dead unfilled node ever reaches the
+    learner. Real Tavily + LLM calls for the stub node."""
     state = _fixed_state()
 
     result = run_roadmap_generator(state)
@@ -59,8 +64,10 @@ def test_roadmap_generator_attaches_project_and_assessment_to_dataset_nodes_only
         assert 0 <= q.correct_option_index < 4
 
     stub_node = result.roadmap.get_node("networking-fundamentals")
-    assert stub_node.project is None
-    assert stub_node.assessment is None
+    assert stub_node.project is not None
+    assert stub_node.assessment is not None
+    assert len(stub_node.assessment.questions) == 3
+    assert stub_node.cheat_sheet_notes
 
     assert result.stage == ConversationStage.ROADMAP_REVIEW
     assert result.next_agent == AgentName.DONE

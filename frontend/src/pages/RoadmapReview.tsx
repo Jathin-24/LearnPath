@@ -63,7 +63,7 @@ export default function RoadmapReview() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
-      <NavBar />
+      <NavBar hasRoadmap />
       <div className="mx-auto max-w-5xl px-6 py-8">
         <div className="flex items-center justify-between">
           <div>

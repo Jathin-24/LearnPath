@@ -40,9 +40,12 @@ export default function Dashboard() {
   }
 
   const availableNode = state.roadmap?.nodes.find((n) => n.status === "available");
-  const datasetNodes = state.roadmap?.nodes.filter((n) => n.path_type === "path_a_dataset") ?? [];
-  const completedNodes = datasetNodes.filter((n) => n.status === "complete");
-  const totalTimeSeconds = datasetNodes.reduce((sum, n) => sum + n.time_spent_seconds, 0);
+  // Both dataset (Path A) and web-sourced (Path B) topics count toward
+  // progress once they have real content - only unfilled Path-B stubs
+  // (shouldn't normally reach the learner) are excluded.
+  const completableNodes = state.roadmap?.nodes.filter((n) => n.assessment !== null) ?? [];
+  const completedNodes = completableNodes.filter((n) => n.status === "complete");
+  const totalTimeSeconds = completableNodes.reduce((sum, n) => sum + n.time_spent_seconds, 0);
   const totalHours = Math.floor(totalTimeSeconds / 3600);
   const totalMinutes = Math.round((totalTimeSeconds % 3600) / 60);
   const timeLabel = totalHours > 0 ? `${totalHours}h ${totalMinutes}m` : `${totalMinutes}m`;
@@ -54,10 +57,20 @@ export default function Dashboard() {
     ? (Date.now() - new Date(lastActivity).getTime()) / (1000 * 60 * 60 * 24)
     : 0;
   const showReminder = daysSinceActivity >= 1;
+  const milestone =
+    dashboard.percent_complete >= 100
+      ? "🏆 Complete!"
+      : dashboard.percent_complete >= 75
+        ? "🔥 Almost there"
+        : dashboard.percent_complete >= 50
+          ? "⭐ Halfway there"
+          : dashboard.percent_complete >= 25
+            ? "🌱 Building momentum"
+            : null;
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
-      <NavBar />
+      <NavBar hasRoadmap />
       <div className="mx-auto max-w-5xl space-y-6 px-6 py-8">
         {showReminder && (
           <div className="rounded-lg border border-indigo-800 bg-indigo-950/40 px-4 py-3 text-sm text-indigo-200">
@@ -72,10 +85,18 @@ export default function Dashboard() {
             <div>
               <h1 className="text-2xl font-bold">Dashboard</h1>
               <p className="mt-1 text-sm text-slate-400">
-                {completedNodes.length} of {datasetNodes.length} topics complete
+                {completedNodes.length} of {completableNodes.length} topics complete ·{" "}
+                <Link to="/analytics" className="text-indigo-400 hover:underline">
+                  View full analytics
+                </Link>
               </p>
             </div>
-            <p className="text-4xl font-bold text-indigo-400">{dashboard.percent_complete}%</p>
+            <div className="text-right">
+              <p className="text-4xl font-bold text-indigo-400">{dashboard.percent_complete}%</p>
+              {milestone && (
+                <p className="mt-1 text-xs font-medium text-slate-400">{milestone}</p>
+              )}
+            </div>
           </div>
           <div className="mt-4 h-3 w-full overflow-hidden rounded-full bg-slate-800">
             <div
@@ -90,7 +111,7 @@ export default function Dashboard() {
             <p className="text-xs font-medium text-slate-400">Topics Completed</p>
             <p className="mt-2 text-2xl font-bold text-white">
               {completedNodes.length}
-              <span className="text-sm font-medium text-slate-500"> / {datasetNodes.length}</span>
+              <span className="text-sm font-medium text-slate-500"> / {completableNodes.length}</span>
             </p>
           </div>
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { getState, updateProfile, uploadResume } from "../api";
+import { getState, restartGoal, updateProfile, uploadResume } from "../api";
 import NavBar from "../components/NavBar";
 import { getSessionId } from "../session";
 import type { AppState, OccupationStatus } from "../types";
@@ -66,6 +66,8 @@ export default function Profile() {
   const [resumeSaved, setResumeSaved] = useState(false);
   const [resumeError, setResumeError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [restarting, setRestarting] = useState(false);
 
   useEffect(() => {
     if (!sessionId) {
@@ -141,6 +143,22 @@ export default function Profile() {
     }
   }
 
+  async function handleStartNewGoal() {
+    if (!sessionId || restarting) return;
+    const confirmed = window.confirm(
+      "Start a new goal? This clears your current roadmap and skill assessment - your name/email/" +
+        "age/gender/occupation stay the same. This can't be undone.",
+    );
+    if (!confirmed) return;
+    setRestarting(true);
+    try {
+      await restartGoal(sessionId);
+      navigate("/chat");
+    } catch {
+      setRestarting(false);
+    }
+  }
+
   if (!sessionId || !state) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-400">
@@ -153,7 +171,7 @@ export default function Profile() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
-      <NavBar />
+      <NavBar hasRoadmap={!!state.roadmap} />
       <div className="mx-auto max-w-2xl space-y-6 px-6 py-8">
         <div>
           <h1 className="text-2xl font-bold">Your Profile</h1>
@@ -311,6 +329,23 @@ export default function Profile() {
                 Import AI Context
               </Link>
             </div>
+
+            {state.roadmap && (
+              <div className="rounded-lg border border-red-900/60 bg-red-950/10 p-4">
+                <h2 className="mb-2 text-sm font-semibold text-slate-300">Start a New Goal</h2>
+                <p className="mb-3 text-xs text-slate-500">
+                  Ready to learn something else? This clears your current roadmap and skill
+                  assessment - your personal details stay the same.
+                </p>
+                <button
+                  onClick={handleStartNewGoal}
+                  disabled={restarting}
+                  className="rounded-md bg-red-950 px-3 py-1 text-xs font-medium text-red-300 transition hover:bg-red-900 disabled:opacity-50"
+                >
+                  {restarting ? "Starting..." : "Start a new goal"}
+                </button>
+              </div>
+            )}
 
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
               <h2 className="mb-2 text-sm font-semibold text-slate-300">

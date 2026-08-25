@@ -35,6 +35,7 @@ from collections import deque
 
 from pydantic import BaseModel, ValidationError
 
+from backend.agents.path_b import run_path_b
 from backend.common import db
 from backend.common.llm_client import LLMClient
 from backend.common.slugify import slugify
@@ -202,7 +203,12 @@ def run_path_a(
     seeds_raw = retrieve(query, k=SEED_K)
     candidates = [r for r in seeds_raw if r["score"] >= MIN_SIMILARITY_SCORE]
     if not candidates:
-        candidates = seeds_raw[:3]  # fail-safe: never produce an empty roadmap
+        # Nothing in the 80-course dataset genuinely fits this goal - forcing
+        # the top-3 weak matches produced irrelevant roadmaps in practice
+        # (see MIN_SIMILARITY_SCORE's history above). Fall back to Path-B
+        # (web/YouTube-sourced) for the whole goal instead.
+        state.log(AgentName.PATH_A, "dataset_match_too_weak", detail="falling back to Path-B")
+        return run_path_b(state, llm_client=client)
 
     approved_names = _plan_with_llm(client, state, candidates)
 

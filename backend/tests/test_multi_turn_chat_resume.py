@@ -19,14 +19,17 @@ def test_second_invoke_resumes_assessment_instead_of_terminating():
 
     # Simulate exactly what db.save_state/load_state round-trips after a
     # first /chat call left the session paused at the checklist step.
+    # Checklist confirmation is now structured (state.pending_checklist_concepts,
+    # resolved via POST /assessment/checklist/submit - see assessment.py's
+    # module docstring), not free-text chat - so a second graph.invoke() here
+    # simulates the defensive case where /chat gets called anyway rather
+    # than the expected route.
     state = AppState(session_id="test-multi-turn-resume")
     state.learner_profile.stated_known_skills = ["Python"]
     state.conversation_history = [
-        ChatTurn(
-            role="assistant",
-            content="[ASSESSMENT:CHECKLIST]Concepts:\n- variables\n- loops\n- functions",
-        )
+        ChatTurn(role="assistant", content="Quick check before we build your roadmap...")
     ]
+    state.pending_checklist_concepts = ["variables", "loops", "functions"]
     state.next_agent = AgentName.ASSESSMENT
     state.awaiting_input = True
     state.last_user_message = "I know variables and loops."
@@ -38,4 +41,8 @@ def test_second_invoke_resumes_assessment_instead_of_terminating():
         "second invoke() must actually run Assessment again, not silently "
         "terminate because next_agent was 'done'"
     )
-    assert len(result["pending_quiz"]) > 0, "expected the quiz-generation phase to have run"
+    assert result["awaiting_input"] is True, "must stay paused, not silently fall through"
+    assert result["pending_checklist_concepts"] == ["variables", "loops", "functions"], (
+        "checklist state must be untouched by a stray /chat call - it's only "
+        "resolved via the dedicated /assessment/checklist/submit route"
+    )

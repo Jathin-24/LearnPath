@@ -18,6 +18,7 @@ class Settings:
     llm_providers: str = os.environ.get("LLM_PROVIDERS", "")
     llm_api_keys: str = os.environ.get("LLM_API_KEYS", "")
     llm_models: str = os.environ.get("LLM_MODELS", "")
+    tavily_api_key: str = os.environ.get("TAVILY_API_KEY", "")
 
 
 @lru_cache

@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from backend.api.main import app
 from backend.common import db
 from backend.orchestrator.state_schema import (
+    AgentName,
     AppState,
     ConversationStage,
     NodeStatus,
@@ -127,19 +128,39 @@ def test_submit_assessment_rejects_non_available_node(client):
     assert "one at a time" in resp.json()["detail"]
 
 
-def test_chat_redirects_instead_of_processing_mid_roadmap(client):
+def test_chat_uses_topic_tutor_instead_of_processing_mid_roadmap(client):
+    """Mid-roadmap, /chat must route through the Topic Tutor (agents/tutor.py)
+    - grounded, real answers about the current topic - not re-run the
+    Profiler/Assessment onboarding chain as if this were a fresh goal."""
     session_id = client.post("/session").json()["session_id"]
     state = db.load_state(session_id)
     state.stage = ConversationStage.IN_PROGRESS
     state.learner_profile.goal = "become a backend developer"
+    state.roadmap = Roadmap(
+        path_type=PathType.PATH_A_DATASET,
+        nodes=[
+            RoadmapNode(
+                node_id="python-basics",
+                topic="Python Basics",
+                path_type=PathType.PATH_A_DATASET,
+                status=NodeStatus.AVAILABLE,
+                key_concepts=["variables", "loops"],
+            )
+        ],
+    )
     db.save_state(state)
 
-    resp = client.post("/chat", json={"session_id": session_id, "message": "I want to learn cooking now"})
+    resp = client.post(
+        "/chat", json={"session_id": session_id, "message": "What's a variable in Python?"}
+    )
     assert resp.status_code == 200
     body = resp.json()
-    assert "roadmap" in body["assistant_message"].lower()
-    assert "backend developer" in body["assistant_message"]
+    assert body["assistant_message"].strip() != ""
 
     after = db.load_state(session_id)
-    assert after.conversation_history[-2].content == "I want to learn cooking now"
+    assert after.conversation_history[-2].content == "What's a variable in Python?"
     assert after.conversation_history[-1].content == body["assistant_message"]
+    # The onboarding chain must NOT have run for this turn.
+    visited_agents = {e.agent for e in after.progress_log}
+    assert AgentName.PROFILER not in visited_agents
+    assert AgentName.ASSESSMENT not in visited_agents

@@ -62,7 +62,7 @@ export default function Analytics() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
-      <NavBar />
+      <NavBar hasRoadmap />
       <div className="mx-auto max-w-3xl space-y-6 px-6 py-8">
         <div>
           <h1 className="text-2xl font-bold">Your Analytics</h1>
