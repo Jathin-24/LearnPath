@@ -28,7 +28,16 @@ export type AgentName =
   | "explainer"
   | "done";
 
+export type OccupationStatus = "student" | "working_professional";
+
 export interface LearnerProfile {
+  name: string | null;
+  email: string | null;
+  age: number | null;
+  gender: string | null;
+  occupation_status: OccupationStatus | null;
+  student_percentage: string | null;
+  professional_role: string | null;
   goal: string | null;
   timeline: string | null;
   interests: string[];
@@ -84,6 +93,8 @@ export interface RoadmapNode {
   assessment: TopicAssessment | null;
   completed_at: string | null;
   time_spent_seconds: number;
+  key_concepts: string[];
+  estimated_days: number;
 }
 
 export interface Roadmap {
@@ -125,8 +136,25 @@ export interface DashboardResponse {
   next_recommended_action: string;
 }
 
+export interface PerTopicTime {
+  topic: string;
+  seconds: number;
+}
+
+export interface SkillSummary {
+  known: number;
+  learned: number;
+  claimed_unconfirmed: number;
+  gap: number;
+}
+
 export interface AnalyticsResponse {
   quiz_pass_rate: number;
   topics_completed_this_week: number;
   total_time_spent_seconds: number;
+  topics_total: number;
+  topics_completed: number;
+  average_score: number;
+  per_topic_time: PerTopicTime[];
+  skill_summary: SkillSummary;
 }

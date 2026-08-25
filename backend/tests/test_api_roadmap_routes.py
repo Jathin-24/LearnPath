@@ -39,24 +39,23 @@ def test_generate_confirm_explain_submit_flow():
         assert confirmed.status_code == 200
         confirmed_state = confirmed.json()["state"]
         assert confirmed_state["stage"] == "in_progress"
+
+        # Sequential unlocking (Round 4): exactly one node available at a
+        # time, never more - see backend/api/main.py's _unlock_next_in_sequence.
         available = [n for n in confirmed_state["roadmap"]["nodes"] if n["status"] == "available"]
-        assert available, "expected at least one node with no prerequisites to be unlocked"
+        assert len(available) == 1, f"expected exactly one available node, got {len(available)}"
+        current_node = available[0]
+        assert current_node["path_type"] == "path_a_dataset"  # stub nodes are skipped
 
-        first_node_id = available[0]["node_id"]
-
-        explained = client.post(f"/roadmap/explain/{first_node_id}", json={"session_id": session_id})
+        explained = client.post(f"/roadmap/explain/{current_node['node_id']}", json={"session_id": session_id})
         assert explained.status_code == 200
         assert len(explained.json()["explanation"]) > 10
 
-        dataset_node = next(
-            n for n in confirmed_state["roadmap"]["nodes"]
-            if n["path_type"] == "path_a_dataset" and n["assessment"]
-        )
-        questions = dataset_node["assessment"]["questions"]
+        questions = current_node["assessment"]["questions"]
         correct_answers = [q["options"][q["correct_option_index"]] for q in questions]
 
         submitted = client.post(
-            f"/topic/{dataset_node['node_id']}/assessment/submit",
+            f"/topic/{current_node['node_id']}/assessment/submit",
             json={"session_id": session_id, "answers": correct_answers},
         )
         assert submitted.status_code == 200
@@ -64,6 +63,12 @@ def test_generate_confirm_explain_submit_flow():
         assert body["score"] == 1.0
         assert body["passed"] is True
         assert body["node_status"] == "complete"
+
+        # Exactly the next node in sequence should now be available - not
+        # zero, not more than one.
+        after_state = client.get(f"/state/{session_id}").json()["state"]
+        still_available = [n for n in after_state["roadmap"]["nodes"] if n["status"] == "available"]
+        assert len(still_available) <= 1
 
 
 def test_submit_assessment_404_for_unknown_node():

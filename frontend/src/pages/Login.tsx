@@ -20,6 +20,11 @@ export default function Login() {
     try {
       const auth = mode === "login" ? await login(username, password) : await signup(username, password);
       setAuth(auth);
+      if (mode === "signup") {
+        // New users complete required profile fields before anything else.
+        navigate("/profile?required=1");
+        return;
+      }
       const { state } = await getState(auth.session_id);
       navigate(routeForStage(state.stage));
     } catch (err) {

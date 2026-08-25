@@ -72,6 +72,24 @@ export function confirmRoadmap(sessionId: string): Promise<{ state: AppState }> 
   });
 }
 
+export function reorderRoadmapNode(
+  sessionId: string,
+  nodeId: string,
+  direction: "up" | "down",
+): Promise<{ state: AppState }> {
+  return request("/roadmap/reorder", {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId, node_id: nodeId, direction }),
+  });
+}
+
+export function skipRoadmapNode(sessionId: string, nodeId: string): Promise<{ state: AppState }> {
+  return request(`/roadmap/skip/${nodeId}`, {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+}
+
 export function explainNode(
   sessionId: string,
   nodeId: string,
@@ -98,6 +116,13 @@ export function getDashboard(sessionId: string): Promise<DashboardResponse> {
 }
 
 export interface ProfileUpdate {
+  name?: string;
+  email?: string;
+  age?: number;
+  gender?: string;
+  occupation_status?: string;
+  student_percentage?: string;
+  professional_role?: string;
   goal?: string;
   timeline?: string;
   interests?: string[];

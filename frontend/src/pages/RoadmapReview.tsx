@@ -97,7 +97,12 @@ export default function RoadmapReview() {
           {view === "graph" ? (
             <RoadmapGraph nodes={roadmap.nodes} onNodeClick={handleNodeClick} />
           ) : (
-            <RoadmapList nodes={roadmap.nodes} onNodeClick={handleNodeClick} />
+            <RoadmapList
+              nodes={roadmap.nodes}
+              onNodeClick={handleNodeClick}
+              sessionId={sessionId}
+              onChanged={setState}
+            />
           )}
         </div>
 

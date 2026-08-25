@@ -51,6 +51,7 @@ class NodeContentOutput(BaseModel):
     project_title: str
     project_description: str
     questions: list[MCQQuestion]
+    estimated_days: int
 
 
 def _parse_json(raw_text: str) -> dict:
@@ -58,10 +59,11 @@ def _parse_json(raw_text: str) -> dict:
     return json.loads(cleaned)
 
 
-def _build_prompt(topic: str, course_summary: str | None) -> str:
+def _build_prompt(topic: str, course_summary: str | None, timeline: str | None) -> str:
     summary_clause = f": {course_summary}" if course_summary else ""
+    timeline_clause = f" The learner's overall timeline is: {timeline}." if timeline else ""
     return f"""Generate a checkpoint project and a short assessment quiz for a learner \
-studying "{topic}"{summary_clause}.
+studying "{topic}"{summary_clause}.{timeline_clause}
 
 Respond with ONLY a JSON object (no markdown fences, no preamble) in this exact shape:
 {{
@@ -69,13 +71,18 @@ Respond with ONLY a JSON object (no markdown fences, no preamble) in this exact 
   "project_description": "2-3 sentences describing a hands-on project applying this topic",
   "questions": [
     {{"question": "...", "options": ["...", "...", "...", "..."], "correct_option_index": 0}}
-  ]
+  ],
+  "estimated_days": 5
 }}
-Write exactly {QUESTIONS_PER_NODE} questions, each with exactly 4 options."""
+Write exactly {QUESTIONS_PER_NODE} questions, each with exactly 4 options. estimated_days is a
+realistic whole number of days for THIS one topic alone (not the whole roadmap), consistent
+with the learner's overall timeline if one was given."""
 
 
-def _generate_node_content(client: LLMClient, topic: str, course_summary: str | None) -> NodeContentOutput:
-    prompt = _build_prompt(topic, course_summary)
+def _generate_node_content(
+    client: LLMClient, topic: str, course_summary: str | None, timeline: str | None
+) -> NodeContentOutput:
+    prompt = _build_prompt(topic, course_summary, timeline)
 
     def attempt(p: str) -> NodeContentOutput:
         output = NodeContentOutput.model_validate(_parse_json(client.complete(p, max_tokens=1500)))
@@ -117,11 +124,14 @@ def run_roadmap_generator(state: AppState, llm_client: LLMClient | None = None) 
     for node in dataset_nodes:
         if node.project is not None:
             continue  # already populated - this roadmap was reused from a template
-        content = _generate_node_content(client, node.topic, node.course_summary)
+        content = _generate_node_content(
+            client, node.topic, node.course_summary, state.learner_profile.timeline
+        )
         node.project = ProjectAssignment(
             title=content.project_title, description=content.project_description
         )
         node.assessment = TopicAssessment(questions=content.questions)
+        node.estimated_days = max(1, content.estimated_days)
 
     state.stage = ConversationStage.ROADMAP_REVIEW
     state.log(

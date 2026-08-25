@@ -224,6 +224,7 @@ def run_path_a(
                 slugify(p) for p in profile.get("internal_prerequisites", []) if p in selected
             ],
             external_prerequisite_concepts=list(profile.get("external_prerequisite_concepts", [])),
+            key_concepts=list(profile.get("concepts", []))[:5],  # main ones, not exhaustive
         )
 
     # Promote external concepts hit by selected courses into real Path-B stub

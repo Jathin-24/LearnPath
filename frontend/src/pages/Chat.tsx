@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { sendChatMessage, getState } from "../api";
 import ChatBubble from "../components/ChatBubble";
 import NavBar from "../components/NavBar";
@@ -58,10 +58,21 @@ export default function Chat() {
       <NavBar />
       <header className="border-b border-slate-800 px-6 py-4">
         <h1 className="text-lg font-semibold">Let's figure out your path</h1>
-        <p className="mt-1 text-xs text-slate-500">
-          Already talked to another AI about your goals? Visit{" "}
-          <span className="text-indigo-400">Import AI Context</span> above to bring that in.
-        </p>
+        {history.length === 0 ? (
+          <div className="mt-2 flex items-center justify-between rounded-lg border border-indigo-800 bg-indigo-950/40 px-4 py-2 text-sm text-indigo-200">
+            <span>Already talked to another AI about your goals? Bring that context in.</span>
+            <Link to="/import" className="shrink-0 font-semibold text-indigo-300 hover:underline">
+              Import AI Context
+            </Link>
+          </div>
+        ) : (
+          <p className="mt-1 text-xs text-slate-500">
+            Already talked to another AI about your goals?{" "}
+            <Link to="/import" className="text-indigo-400 hover:underline">
+              Import AI Context
+            </Link>
+          </p>
+        )}
       </header>
 
       <div className="flex-1 space-y-3 overflow-y-auto px-6 py-6">

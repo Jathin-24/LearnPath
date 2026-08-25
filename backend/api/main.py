@@ -33,7 +33,14 @@ from backend.agents.roadmap_generator import run_roadmap_generator
 from backend.common import db
 from backend.common.llm_client import LLMClient
 from backend.orchestrator.graph import build_graph
-from backend.orchestrator.state_schema import AgentName, AppState, ConversationStage, NodeStatus
+from backend.orchestrator.state_schema import (
+    AgentName,
+    AppState,
+    ChatTurn,
+    ConversationStage,
+    NodeStatus,
+    PathType,
+)
 
 
 @asynccontextmanager
@@ -145,6 +152,23 @@ class ChatRequest(BaseModel):
 @app.post("/chat")
 def chat(payload: ChatRequest):
     state = _load_or_404(payload.session_id)
+
+    # Stay single-topic-focused: once a roadmap exists and is active, don't
+    # let a stray chat message quietly try to start a second goal/roadmap -
+    # that's exactly the "overloading of information" the user asked to
+    # avoid. Redirect deterministically instead of invoking the graph at all.
+    if state.stage in (ConversationStage.ROADMAP_REVIEW, ConversationStage.IN_PROGRESS):
+        redirect = (
+            f"You're currently working through your roadmap"
+            f"{f' for {state.learner_profile.goal!r}' if state.learner_profile.goal else ''}. "
+            "Let's finish that one topic at a time - head to your Dashboard to continue, "
+            "or visit your Profile if you want to start fresh with a new goal."
+        )
+        state.conversation_history.append(ChatTurn(role="user", content=payload.message))
+        state.conversation_history.append(ChatTurn(role="assistant", content=redirect))
+        db.save_state(state)
+        return {"state": state, "assistant_message": redirect}
+
     state.last_user_message = payload.message
     turns_before = len(state.conversation_history)
 
@@ -233,11 +257,66 @@ def confirm_roadmap(payload: SessionIdRequest):
         raise HTTPException(status_code=400, detail="No roadmap to confirm for this session")
 
     state.stage = ConversationStage.IN_PROGRESS
-    for node in state.roadmap.nodes:
-        if node.status == NodeStatus.LOCKED and not node.internal_prerequisites:
-            node.status = NodeStatus.AVAILABLE
+    _unlock_next_in_sequence(state)
 
     state.log(AgentName.ORCHESTRATOR, "roadmap_confirmed", detail=f"{len(state.roadmap.nodes)} nodes")
+    db.save_state(state)
+    return {"state": state}
+
+
+class ReorderRequest(BaseModel):
+    session_id: str
+    node_id: str
+    direction: str  # "up" | "down"
+
+
+@app.post("/roadmap/reorder")
+def reorder_roadmap_node(payload: ReorderRequest):
+    """Only LOCKED (not-yet-started) topics can be reordered - completed/
+    available/in-progress topics stay put, keeping the sequential-unlock
+    model (backend/api/main.py's _unlock_next_in_sequence) intact."""
+    state = _load_or_404(payload.session_id)
+    if state.roadmap is None:
+        raise HTTPException(status_code=400, detail="No roadmap for this session")
+
+    nodes = state.roadmap.nodes
+    idx = next((i for i, n in enumerate(nodes) if n.node_id == payload.node_id), None)
+    if idx is None:
+        raise HTTPException(status_code=404, detail=f"No node {payload.node_id!r} in this roadmap")
+    if nodes[idx].status != NodeStatus.LOCKED:
+        raise HTTPException(status_code=400, detail="Only upcoming (locked) topics can be reordered")
+
+    step = {"up": -1, "down": 1}.get(payload.direction)
+    if step is None:
+        raise HTTPException(status_code=400, detail="direction must be 'up' or 'down'")
+
+    swap_idx = idx + step
+    if not (0 <= swap_idx < len(nodes)) or nodes[swap_idx].status != NodeStatus.LOCKED:
+        raise HTTPException(status_code=400, detail="No locked neighbor in that direction")
+
+    nodes[idx], nodes[swap_idx] = nodes[swap_idx], nodes[idx]
+    db.save_state(state)
+    return {"state": state}
+
+
+@app.post("/roadmap/skip/{node_id}")
+def skip_roadmap_node(node_id: str, payload: SessionIdRequest):
+    """Removes a LOCKED (not-yet-started) topic entirely and strips it from
+    every other node's internal_prerequisites so nothing dangles."""
+    state = _load_or_404(payload.session_id)
+    if state.roadmap is None:
+        raise HTTPException(status_code=400, detail="No roadmap for this session")
+    node = state.roadmap.get_node(node_id)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"No node {node_id!r} in this roadmap")
+    if node.status != NodeStatus.LOCKED:
+        raise HTTPException(status_code=400, detail="Only upcoming (locked) topics can be skipped")
+
+    state.roadmap.nodes = [n for n in state.roadmap.nodes if n.node_id != node_id]
+    for other in state.roadmap.nodes:
+        if node_id in other.internal_prerequisites:
+            other.internal_prerequisites.remove(node_id)
+
     db.save_state(state)
     return {"state": state}
 
@@ -257,17 +336,21 @@ class AssessmentSubmitRequest(BaseModel):
     answers: list[str]  # one selected option string per question, in order
 
 
-def _unlock_dependents(state: AppState, completed_node_id: str) -> None:
+def _unlock_next_in_sequence(state: AppState) -> None:
+    """Exactly one node AVAILABLE at a time, in roadmap order (already
+    topologically sorted by Path-A) - not "everything whose prerequisites
+    are met," per the user's explicit "complete everything one by one"
+    request. PATH_B_OPEN_WEB stub nodes are skipped: they have no way to be
+    completed until Path-B exists, so leaving them in the sequence would
+    permanently deadlock progression the first time one comes up."""
     for node in state.roadmap.nodes:
-        if completed_node_id not in node.internal_prerequisites or node.status != NodeStatus.LOCKED:
+        if node.path_type == PathType.PATH_B_OPEN_WEB:
             continue
-        unmet = [
-            prereq_id
-            for prereq_id in node.internal_prerequisites
-            if (prereq := state.roadmap.get_node(prereq_id)) and prereq.status != NodeStatus.COMPLETE
-        ]
-        if not unmet:
+        if node.status == NodeStatus.COMPLETE:
+            continue
+        if node.status == NodeStatus.LOCKED:
             node.status = NodeStatus.AVAILABLE
+        break  # first non-complete dataset node found, unlocked or not - stop
 
 
 @app.post("/topic/{node_id}/assessment/submit")
@@ -280,6 +363,11 @@ def submit_assessment(node_id: str, payload: AssessmentSubmitRequest):
         raise HTTPException(status_code=404, detail=f"No node {node_id!r} in this roadmap")
     if node.assessment is None:
         raise HTTPException(status_code=400, detail=f"Node {node_id!r} has no assessment")
+    if node.status != NodeStatus.AVAILABLE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Node {node_id!r} isn't the current topic - complete topics one at a time",
+        )
 
     questions = node.assessment.questions
     correct = sum(
@@ -296,7 +384,7 @@ def submit_assessment(node_id: str, payload: AssessmentSubmitRequest):
     if passed:
         node.status = NodeStatus.COMPLETE
         node.completed_at = datetime.now(timezone.utc)
-        _unlock_dependents(state, node_id)
+        _unlock_next_in_sequence(state)
 
     state.log(
         AgentName.ASSESSMENT,
@@ -328,6 +416,13 @@ def record_time_spent(node_id: str, payload: TimeSpentRequest):
 
 class ProfileUpdateRequest(BaseModel):
     session_id: str
+    name: str | None = None
+    email: str | None = None
+    age: int | None = None
+    gender: str | None = None
+    occupation_status: str | None = None
+    student_percentage: str | None = None
+    professional_role: str | None = None
     goal: str | None = None
     timeline: str | None = None
     interests: list[str] | None = None
@@ -340,6 +435,25 @@ def update_profile(payload: ProfileUpdateRequest):
     state = _load_or_404(payload.session_id)
     profile = state.learner_profile
 
+    if payload.name is not None:
+        profile.name = payload.name
+    if payload.email is not None:
+        profile.email = payload.email
+    if payload.age is not None:
+        profile.age = payload.age
+    if payload.gender is not None:
+        profile.gender = payload.gender
+    if payload.occupation_status is not None:
+        if payload.occupation_status not in ("student", "working_professional"):
+            raise HTTPException(
+                status_code=400,
+                detail="occupation_status must be 'student' or 'working_professional'",
+            )
+        profile.occupation_status = payload.occupation_status
+    if payload.student_percentage is not None:
+        profile.student_percentage = payload.student_percentage
+    if payload.professional_role is not None:
+        profile.professional_role = payload.professional_role
     if payload.goal is not None:
         profile.goal = payload.goal
     if payload.timeline is not None:
@@ -363,31 +477,51 @@ def analytics(session_id: str):
     passed_nodes = 0
     total_time_seconds = 0
     completed_this_week = 0
+    completed_total = 0
+    scores: list[float] = []
+    per_topic_time: list[dict] = []
     week_ago = datetime.now(timezone.utc) - timedelta(days=7)
 
-    if state.roadmap is not None:
-        for node in state.roadmap.nodes:
-            total_time_seconds += node.time_spent_seconds
-            if node.assessment is not None and node.assessment.attempts > 0:
-                attempted_nodes += 1
-                if node.status == NodeStatus.COMPLETE:
-                    passed_nodes += 1
-            if node.completed_at is not None:
-                completed_at = node.completed_at
-                if completed_at.tzinfo is None:
-                    completed_at = completed_at.replace(tzinfo=timezone.utc)
-                if completed_at >= week_ago:
-                    completed_this_week += 1
+    dataset_nodes = [n for n in (state.roadmap.nodes if state.roadmap else []) if n.assessment is not None]
+
+    for node in dataset_nodes:
+        total_time_seconds += node.time_spent_seconds
+        if node.time_spent_seconds > 0:
+            per_topic_time.append({"topic": node.topic, "seconds": node.time_spent_seconds})
+        if node.assessment.attempts > 0:
+            attempted_nodes += 1
+            if node.status == NodeStatus.COMPLETE:
+                passed_nodes += 1
+        if node.status == NodeStatus.COMPLETE:
+            completed_total += 1
+            if node.assessment.last_score is not None:
+                scores.append(node.assessment.last_score)
+        if node.completed_at is not None:
+            completed_at = node.completed_at
+            if completed_at.tzinfo is None:
+                completed_at = completed_at.replace(tzinfo=timezone.utc)
+            if completed_at >= week_ago:
+                completed_this_week += 1
 
     # Fraction of attempted topics eventually passed - not attempts/passes,
     # since TopicAssessment only tracks a running attempt count + last_score,
     # not a per-attempt pass/fail history.
     pass_rate = (passed_nodes / attempted_nodes) if attempted_nodes else 0.0
+    average_score = (sum(scores) / len(scores)) if scores else 0.0
+
+    skill_summary = {"known": 0, "learned": 0, "claimed_unconfirmed": 0, "gap": 0}
+    for assessment in state.skill_gap_map.assessments:
+        skill_summary[assessment.status.value] += 1
 
     return {
         "quiz_pass_rate": round(pass_rate, 2),
         "topics_completed_this_week": completed_this_week,
         "total_time_spent_seconds": total_time_seconds,
+        "topics_total": len(dataset_nodes),
+        "topics_completed": completed_total,
+        "average_score": round(average_score, 2),
+        "per_topic_time": sorted(per_topic_time, key=lambda t: -t["seconds"]),
+        "skill_summary": skill_summary,
     }
 
 

@@ -17,7 +17,7 @@ Design notes:
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, Field
 
 
@@ -73,6 +73,17 @@ class AgentName(str, Enum):
 # ---------------------------------------------------------------------------
 
 class LearnerProfile(BaseModel):
+    # Identity fields - required by the frontend's post-signup completion
+    # gate (see frontend/src/pages/Profile.tsx), optional here at the schema
+    # level so existing sessions predating this field don't break.
+    name: Optional[str] = None
+    email: Optional[str] = None
+    age: Optional[int] = None
+    gender: Optional[str] = None                    # free text, not a fixed set of options
+    occupation_status: Optional[Literal["student", "working_professional"]] = None
+    student_percentage: Optional[str] = None        # free text - "85%", "3.8 GPA", etc.
+    professional_role: Optional[str] = None          # e.g. "Backend Developer"
+
     goal: Optional[str] = None                     # e.g. "become a backend developer"
     timeline: Optional[str] = None                  # e.g. "3 months"
     interests: list[str] = Field(default_factory=list)
@@ -161,6 +172,13 @@ class RoadmapNode(BaseModel):
     # backend/api/main.py's /analytics and /topic/{id}/time routes)
     completed_at: Optional[datetime] = None
     time_spent_seconds: int = 0
+
+    # Shown in the roadmap list view - see backend/agents/path_a.py
+    # (key_concepts, from the dataset's own concept tags) and
+    # backend/agents/roadmap_generator.py (estimated_days, from the same
+    # per-node LLM call that already generates the project/quiz).
+    key_concepts: list[str] = Field(default_factory=list)
+    estimated_days: int = 0
 
 
 class Roadmap(BaseModel):

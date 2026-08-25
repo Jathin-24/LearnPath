@@ -86,6 +86,7 @@ def test_record_time_spent_accumulates(client):
 
 def test_analytics_reflects_time_and_completion(client):
     session_id = _create_session_with_roadmap(client)
+    client.post("/roadmap/confirm", json={"session_id": session_id})  # unlocks python-basics
     client.post("/topic/python-basics/time", json={"session_id": session_id, "seconds": 120})
 
     before = client.get(f"/analytics/{session_id}").json()
