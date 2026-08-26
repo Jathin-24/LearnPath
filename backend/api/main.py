@@ -77,16 +77,9 @@ app = FastAPI(title="Learning Path Recommender API", lifespan=lifespan)
 # see backend/common/config.py and docs/deployment_guide.md. No source edit
 # needed to deploy.
 _extra_origins = [o.strip() for o in get_settings().allowed_origins.split(",") if o.strip()]
-_app_origins = [
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "http://localhost:5174",
-    "http://127.0.0.1:5174",
-    *_extra_origins,
-]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_app_origins if _extra_origins else ["*"],
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
