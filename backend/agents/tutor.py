@@ -57,6 +57,8 @@ def _personalization_context(state: AppState) -> str:
             parts.append(f"Interests/hobbies: {', '.join(bits)}.")
     if profile.stated_known_skills:
         parts.append(f"Skills they've mentioned: {', '.join(profile.stated_known_skills)}.")
+    if profile.extra_info:
+        parts.append(f"Other notable background: {profile.extra_info}")
     if profile.resume_raw:
         parts.append(f"From their resume:\n{profile.resume_raw}")
     if state.user_id:

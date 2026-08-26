@@ -114,6 +114,13 @@ class LearnerProfile(BaseModel):
     # prompts as background context.
     hobbies: list[str] = Field(default_factory=list)
     certifications: list[str] = Field(default_factory=list)
+    # Catch-all for anything notable the resume extractor found that
+    # doesn't fit a structured field above (awards, publications,
+    # languages, volunteer work, etc.) - shown as an editable free-text
+    # box in Profile so the learner can see/curate it directly, and fed
+    # into personalization prompts the same way resume_raw is (see
+    # tutor.py's _personalization_context, profiler.py's _build_prompt).
+    extra_info: Optional[str] = None
     # Free-text steering for roadmap (re)generation - set via
     # /roadmap/modify (pre-confirm, re-picks topics too) or the
     # instructions field on /topic/{id}/regenerate and /roadmap/regenerate

@@ -19,6 +19,11 @@ class Settings:
     llm_api_keys: str = os.environ.get("LLM_API_KEYS", "")
     llm_models: str = os.environ.get("LLM_MODELS", "")
     tavily_api_key: str = os.environ.get("TAVILY_API_KEY", "")
+    # Comma-separated extra CORS origins (e.g. a deployed frontend's URL) -
+    # additive to the hardcoded local dev origins in backend/api/main.py,
+    # so a deployment only needs an env var, never a source edit. See
+    # docs/deployment_guide.md.
+    allowed_origins: str = os.environ.get("ALLOWED_ORIGINS", "")
 
 
 @lru_cache

@@ -114,6 +114,7 @@ class ResumeProfileOutput(BaseModel):
     hobbies: list[str] = Field(default_factory=list)
     certifications: list[str] = Field(default_factory=list)
     prior_learning_history: list[str] = Field(default_factory=list)
+    extra_info: str | None = None
 
 
 _RESUME_PROFILE_PROMPT = """Extract the following fields from the resume text below, if \
@@ -134,7 +135,10 @@ Respond with ONLY a JSON object (no markdown fences, no preamble) in this exact 
   "skills": ["technical/professional skills listed"],
   "hobbies": ["hobbies or personal interests outside work, if listed"],
   "certifications": ["certifications, e.g. 'AWS Certified Developer'"],
-  "prior_learning_history": ["degrees, courses, or prior training mentioned"]
+  "prior_learning_history": ["degrees, courses, or prior training mentioned"],
+  "extra_info": "a short paragraph (2-4 sentences) covering anything else notable that \
+doesn't fit the fields above - awards, publications, languages spoken, volunteer work, \
+open-source contributions, etc. - or null if there's nothing left over"
 }}
 
 Resume text:

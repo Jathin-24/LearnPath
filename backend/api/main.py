@@ -44,6 +44,7 @@ from backend.agents.roadmap_generator import (
 )
 from backend.agents.tutor import run_topic_tutor
 from backend.common import db
+from backend.common.config import get_settings
 from backend.common.grading import grade_mcq_batch
 from backend.common.llm_client import LLMClient
 from backend.common.slugify import slugify
@@ -71,8 +72,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Learning Path Recommender API", lifespan=lifespan)
 
-# Dev-only: allow the Vite dev server to call this API. Tighten to the real
-# deployed frontend origin before shipping.
+# Local dev origins are always allowed; a deployed frontend's origin(s) come
+# from ALLOWED_ORIGINS (comma-separated, e.g. "https://my-app.vercel.app") -
+# see backend/common/config.py and docs/deployment_guide.md. No source edit
+# needed to deploy.
+_extra_origins = [o.strip() for o in get_settings().allowed_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -80,6 +84,7 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "http://localhost:5174",
         "http://127.0.0.1:5174",
+        *_extra_origins,
     ],
     allow_methods=["*"],
     allow_headers=["*"],
@@ -438,6 +443,8 @@ def _merge_resume_profile_fields(state: AppState, text: str) -> None:
         profile.professional_role = extracted.professional_role
     if not profile.goal and extracted.goal:
         profile.goal = extracted.goal
+    if not profile.extra_info and extracted.extra_info:
+        profile.extra_info = extracted.extra_info
     for lst_attr, values in (
         ("interests", extracted.interests),
         ("stated_known_skills", extracted.skills),
@@ -1109,6 +1116,7 @@ class ProfileUpdateRequest(BaseModel):
     prior_learning_history: list[str] | None = None
     hobbies: list[str] | None = None
     certifications: list[str] | None = None
+    extra_info: str | None = None
 
 
 @app.patch("/profile")
@@ -1149,6 +1157,8 @@ def update_profile(payload: ProfileUpdateRequest):
         profile.hobbies = payload.hobbies
     if payload.certifications is not None:
         profile.certifications = payload.certifications
+    if payload.extra_info is not None:
+        profile.extra_info = payload.extra_info
 
     db.save_state(state)
     return {"state": state}

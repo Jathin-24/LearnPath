@@ -79,6 +79,7 @@ export default function Profile() {
   const [priorHistory, setPriorHistory] = useState("");
   const [hobbies, setHobbies] = useState("");
   const [certifications, setCertifications] = useState("");
+  const [extraInfo, setExtraInfo] = useState("");
 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -115,6 +116,7 @@ export default function Profile() {
       setPriorHistory(toCommaList(p.prior_learning_history));
       setHobbies(toCommaList(p.hobbies));
       setCertifications(toCommaList(p.certifications));
+      setExtraInfo(p.extra_info ?? "");
     });
     getKnowledge(sessionId)
       .then(({ entries }) => setKnowledge(entries))
@@ -158,6 +160,7 @@ export default function Profile() {
         prior_learning_history: fromCommaList(priorHistory),
         hobbies: fromCommaList(hobbies),
         certifications: fromCommaList(certifications),
+        extra_info: extraInfo,
       });
       setState(state);
       setSaved(true);
@@ -198,6 +201,7 @@ export default function Profile() {
       setPriorHistory(toCommaList(p.prior_learning_history));
       setHobbies(toCommaList(p.hobbies));
       setCertifications(toCommaList(p.certifications));
+      setExtraInfo((prev) => prev || p.extra_info || "");
       setResumeSaved(true);
     } catch {
       setResumeError("Couldn't read that PDF - try a different file.");
@@ -233,6 +237,66 @@ export default function Profile() {
 
   const assessments = state.skill_gap_map.assessments;
 
+  const resumeSection = (
+    <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+      <h2 className="mb-2 text-sm font-semibold text-slate-300">Resume</h2>
+      <p className="mb-3 text-xs text-slate-500">
+        {isRequired
+          ? "Upload a PDF and we'll auto-fill as much of the form below as we can find - " +
+            "name, age, gender, skills, certifications, hobbies, and more. Anything it can't " +
+            "find, just fill in yourself."
+          : "PDF only. We'll pull skills, certifications, hobbies, and other details out to " +
+            "auto-fill your profile below, and use it to personalize your roadmap and chats."}
+      </p>
+      {state.learner_profile.resume_filename && (
+        <div className="mb-3 flex items-center justify-between rounded-md bg-slate-950 px-3 py-2 text-xs">
+          <span className="truncate text-slate-300">
+            📄 {state.learner_profile.resume_filename}
+            {state.learner_profile.resume_uploaded_at && (
+              <span className="text-slate-500">
+                {" "}
+                · uploaded {new Date(state.learner_profile.resume_uploaded_at).toLocaleDateString()}
+              </span>
+            )}
+          </span>
+          <a
+            href={resumeFileUrl(sessionId)}
+            target="_blank"
+            rel="noreferrer"
+            className="shrink-0 text-indigo-400 hover:underline"
+          >
+            View PDF
+          </a>
+        </div>
+      )}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/pdf"
+        onChange={handleFileSelected}
+        className="hidden"
+      />
+      <button
+        onClick={() => fileInputRef.current?.click()}
+        disabled={uploading}
+        className="rounded-md bg-slate-700 px-3 py-1 text-xs font-medium transition hover:bg-slate-600 disabled:opacity-50"
+      >
+        {uploading
+          ? "Reading resume..."
+          : state.learner_profile.resume_filename
+            ? "Upload a new PDF"
+            : "Choose PDF"}
+      </button>
+      {uploading && (
+        <BuildingIndicator label="Reading your resume and building your profile..." className="mt-3" />
+      )}
+      {resumeSaved && !uploading && (
+        <p className="mt-2 text-sm text-green-400">Resume read successfully - fields below were auto-filled.</p>
+      )}
+      {resumeError && <p className="mt-2 text-sm text-red-400">{resumeError}</p>}
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <NavBar hasRoadmap={!!state.roadmap} />
@@ -245,10 +309,13 @@ export default function Profile() {
           </p>
           {isRequired && (
             <div className="mt-3 rounded-lg border border-indigo-800 bg-indigo-950/40 px-4 py-3 text-sm text-indigo-200">
-              Welcome! Fill in a few required details before we get started.
+              Welcome! Fill in a few required details before we get started - or upload your
+              resume below and we'll fill in what we can for you.
             </div>
           )}
         </div>
+
+        {isRequired && resumeSection}
 
         <div className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-4">
           <h2 className="text-sm font-semibold text-slate-300">Personal Details</h2>
@@ -345,6 +412,23 @@ export default function Profile() {
           </Field>
         </div>
 
+        <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-900 p-4">
+          <h2 className="text-sm font-semibold text-slate-300">Extra Information</h2>
+          <p className="text-xs text-slate-500">
+            Anything else worth knowing that doesn't fit the fields above - awards,
+            publications, languages, volunteer work, open-source contributions, etc. Pulled
+            automatically from your resume where possible; edit freely. This feeds into how
+            your roadmap and chats are personalized, same as everything else here.
+          </p>
+          <textarea
+            value={extraInfo}
+            onChange={(e) => setExtraInfo(e.target.value)}
+            rows={4}
+            placeholder="e.g. Fluent in Spanish, published two open-source npm packages, volunteer coding tutor on weekends..."
+            className="w-full resize-y rounded-md bg-slate-950 p-2 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+
         {isRequired ? (
           <button
             onClick={() => handleSave(true)}
@@ -407,57 +491,7 @@ export default function Profile() {
               </div>
             )}
 
-            <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-              <h2 className="mb-2 text-sm font-semibold text-slate-300">Resume</h2>
-              <p className="mb-3 text-xs text-slate-500">
-                PDF only. We'll pull skills, certifications, hobbies, and other details out to
-                auto-fill your profile below, and use it to personalize your roadmap and chats.
-              </p>
-              {state.learner_profile.resume_filename && (
-                <div className="mb-3 flex items-center justify-between rounded-md bg-slate-950 px-3 py-2 text-xs">
-                  <span className="truncate text-slate-300">
-                    📄 {state.learner_profile.resume_filename}
-                    {state.learner_profile.resume_uploaded_at && (
-                      <span className="text-slate-500">
-                        {" "}
-                        · uploaded {new Date(state.learner_profile.resume_uploaded_at).toLocaleDateString()}
-                      </span>
-                    )}
-                  </span>
-                  <a
-                    href={resumeFileUrl(sessionId)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="shrink-0 text-indigo-400 hover:underline"
-                  >
-                    View PDF
-                  </a>
-                </div>
-              )}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="application/pdf"
-                onChange={handleFileSelected}
-                className="hidden"
-              />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={uploading}
-                className="rounded-md bg-slate-700 px-3 py-1 text-xs font-medium transition hover:bg-slate-600 disabled:opacity-50"
-              >
-                {uploading
-                  ? "Reading resume..."
-                  : state.learner_profile.resume_filename
-                    ? "Upload a new PDF"
-                    : "Choose PDF"}
-              </button>
-              {uploading && <BuildingIndicator label="Reading your resume and building your profile..." className="mt-3" />}
-              {resumeSaved && !uploading && (
-                <p className="mt-2 text-sm text-green-400">Resume read successfully - fields below were auto-filled.</p>
-              )}
-              {resumeError && <p className="mt-2 text-sm text-red-400">{resumeError}</p>}
-            </div>
+            {resumeSection}
 
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
               <h2 className="mb-2 text-sm font-semibold text-slate-300">Import from another AI</h2>

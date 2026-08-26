@@ -50,6 +50,7 @@ export interface LearnerProfile {
   resume_uploaded_at: string | null;
   hobbies: string[];
   certifications: string[];
+  extra_info: string | null;
   roadmap_instructions: string | null;
 }
 

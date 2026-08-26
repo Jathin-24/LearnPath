@@ -276,6 +276,7 @@ export interface ProfileUpdate {
   prior_learning_history?: string[];
   hobbies?: string[];
   certifications?: string[];
+  extra_info?: string;
 }
 
 export function updateProfile(sessionId: string, update: ProfileUpdate): Promise<{ state: AppState }> {

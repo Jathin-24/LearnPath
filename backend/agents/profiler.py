@@ -62,6 +62,7 @@ def _build_prompt(state: AppState) -> str:
         "interests": profile.interests,
         "stated_known_skills": profile.stated_known_skills,
         "prior_learning_history": profile.prior_learning_history,
+        "extra_info": profile.extra_info,
     }
     recent_turns = "\n".join(
         f"{turn.role}: {turn.content}" for turn in state.conversation_history[-6:]

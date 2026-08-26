@@ -28,6 +28,8 @@ Currently a Backend Developer at Acme Corp, building Python/FastAPI services.
 Skills: Python, PostgreSQL, Docker, REST API design
 Certifications: AWS Certified Developer - Associate
 Hobbies: rock climbing, chess
+Languages: Fluent in Spanish and English
+Volunteer: Weekend coding tutor at a local community center
 Education: B.S. in Computer Science, State University
 """
 
@@ -35,7 +37,9 @@ Education: B.S. in Computer Science, State University
 def test_extract_resume_profile_pulls_structured_fields():
     """Real LLM call - checks the extractor actually separates skills,
     certifications, and hobbies into their own fields rather than dumping
-    everything into one bucket."""
+    everything into one bucket, and that leftover facts (languages,
+    volunteer work - nothing else fits) land in extra_info rather than
+    being silently dropped."""
     result = extract_resume_profile(_SAMPLE_RESUME_TEXT)
 
     assert result.email == "jordan.rivera@example.com"
@@ -43,6 +47,8 @@ def test_extract_resume_profile_pulls_structured_fields():
     assert any("python" in s.lower() for s in result.skills)
     assert any("aws" in c.lower() for c in result.certifications)
     assert any("climbing" in h.lower() or "chess" in h.lower() for h in result.hobbies)
+    assert result.extra_info
+    assert "spanish" in result.extra_info.lower() or "volunteer" in result.extra_info.lower()
 
 
 def _seed_goal(session_id: str, goal: str) -> None:
