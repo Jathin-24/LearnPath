@@ -16,6 +16,7 @@ a failure here break the raw-text save that already succeeded.
 """
 
 import json
+import re
 
 from pydantic import BaseModel, Field, ValidationError
 
@@ -146,24 +147,145 @@ Resume text:
 """
 
 
+def regex_extract_resume_profile(text: str) -> ResumeProfileOutput:
+    """Regex / heuristic fallback that extracts basic profile fields from
+    resume text without any LLM call. Used when the LLM is unavailable
+    (bad keys, rate limits, timeout). Extracts less than the LLM path but
+    guarantees the user sees *something* filled in."""
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    name = None
+    email = None
+    skills: list[str] = []
+    certifications: list[str] = []
+    hobbies: list[str] = []
+    prior_learning_history: list[str] = []
+    professional_role = None
+    occupation_status = None
+    extra_parts: list[str] = []
+
+    # Email
+    m = re.search(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", text)
+    if m:
+        email = m.group(0)
+
+    # Name: first line that isn't an email, phone, or common header
+    _SKIP = re.compile(
+        r"(^resume|^cv|^curriculum|^contact|^email|^phone|^address|@|^\d{3}[\-\.\s]?\d{3})",
+        re.IGNORECASE,
+    )
+    for line in lines[:8]:
+        if _SKIP.search(line):
+            continue
+        if len(line.split()) <= 4 and not any(c.isdigit() for c in line):
+            name = line
+            break
+
+    # Skills line: "Skills: ..." or "Technical Skills: ..."
+    _SKILLS_RE = re.compile(
+        r"(?:technical\s+)?skills?\s*[:\-]\s*(.+)", re.IGNORECASE
+    )
+    m = _SKILLS_RE.search(text)
+    if m:
+        skills = [s.strip() for s in re.split(r"[,;|/]", m.group(1)) if s.strip()]
+
+    # Certifications
+    _CERT_RE = re.compile(
+        r"certifications?\s*[:\-]\s*(.+)", re.IGNORECASE
+    )
+    m = _CERT_RE.search(text)
+    if m:
+        certifications = [s.strip() for s in re.split(r"[,;|]", m.group(1)) if s.strip()]
+
+    # Hobbies
+    _HOBBY_RE = re.compile(
+        r"hobbies?\s*[:\-]\s*(.+)", re.IGNORECASE
+    )
+    m = _HOBBY_RE.search(text)
+    if m:
+        hobbies = [s.strip() for s in re.split(r"[,;|]", m.group(1)) if s.strip()]
+
+    # Education / degrees
+    _EDU_RE = re.compile(
+        r"(?:education|degree|university|college|b\.?s\.?|m\.?s\.?|b\.?a\.?|m\.?a\.?|ph\.?d\.?)[^\n]*",
+        re.IGNORECASE,
+    )
+    for m in _EDU_RE.finditer(text):
+        prior_learning_history.append(m.group(0).strip())
+
+    # Occupation: look for "Currently: ..." or "Current role: ..."
+    _ROLE_RE = re.compile(
+        r"(?:current(?:ly)?|present)\s*(?:role|position|job)?\s*[:\-]\s*(.+)", re.IGNORECASE
+    )
+    m = _ROLE_RE.search(text)
+    if m:
+        raw_role = m.group(1).strip()
+        # If the Currently: line just says "Working Professional" or "Student",
+        # look for the actual job title in the lines above it.
+        if raw_role.lower() in ("working professional", "student"):
+            # Match standalone job titles (short lines with title-like words),
+            # not long sentences that happen to contain those words.
+            _TITLE_RE = re.compile(
+                r"^(?:senior |junior |lead |principal |staff |associate )?"
+                r"(?:backend |frontend |full.?stack |software |data |cloud |devops |"
+                r"machine learning |ml |ai |systems |security |network |mobile |"
+                r"web )?"
+                r"(?:developer|engineer|manager|analyst|designer|architect|director|"
+                r"scientist|researcher|consultant|lead|specialist|administrator|"
+                r"coordinator|officer|professor|associate|intern|freelancer)"
+                r"(?:s)?(?:\s+(?:at|@)\s+.+)?$",
+                re.IGNORECASE,
+            )
+            all_lines = text.splitlines()
+            for line in reversed(all_lines):
+                stripped = line.strip()
+                if _TITLE_RE.match(stripped) and len(stripped.split()) <= 6:
+                    professional_role = stripped
+                    break
+            if not professional_role:
+                professional_role = raw_role
+        else:
+            professional_role = raw_role
+        if any(w in text.lower() for w in ("student", "university", "college")):
+            occupation_status = "student"
+        else:
+            occupation_status = "working_professional"
+
+    return ResumeProfileOutput(
+        name=name,
+        email=email,
+        professional_role=professional_role,
+        occupation_status=occupation_status,
+        skills=skills,
+        certifications=certifications,
+        hobbies=hobbies,
+        prior_learning_history=prior_learning_history,
+        extra_info="; ".join(extra_parts) if extra_parts else None,
+    )
+
+
 def extract_resume_profile(text: str, llm_client: LLMClient | None = None) -> ResumeProfileOutput:
     """Returns structured profile fields pulled from resume text - see
     backend/api/main.py's /profile/resume, which merges these into
     LearnerProfile (filling blanks / appending list fields, never
-    overwriting what the learner already told us directly). Raises on
-    double parse failure - callers must catch and treat this as
-    best-effort, same as extract_knowledge."""
-    client = llm_client or LLMClient()
-    prompt = _RESUME_PROFILE_PROMPT.format(text=text)
+    overwriting what the learner already told us directly).
 
-    def attempt(p: str) -> ResumeProfileOutput:
-        return ResumeProfileOutput.model_validate(_parse_json(client.complete(p, max_tokens=900)))
-
+    Tries the LLM first; if the LLM is unavailable (bad keys, rate
+    limits, timeout), falls back to regex extraction so the user always
+    sees fields filled. Raises only if both paths fail (extremely rare)."""
     try:
-        return attempt(prompt)
-    except (json.JSONDecodeError, ValidationError):
-        stricter = prompt + "\n\nRespond with ONLY valid JSON, no commentary."
-        return attempt(stricter)  # let this raise if it fails again - fail loud
+        client = llm_client or LLMClient()
+        prompt = _RESUME_PROFILE_PROMPT.format(text=text)
+
+        def attempt(p: str) -> ResumeProfileOutput:
+            return ResumeProfileOutput.model_validate(_parse_json(client.complete(p, max_tokens=900)))
+
+        try:
+            return attempt(prompt)
+        except (json.JSONDecodeError, ValidationError):
+            stricter = prompt + "\n\nRespond with ONLY valid JSON, no commentary."
+            return attempt(stricter)
+    except Exception:
+        return regex_extract_resume_profile(text)
 
 
 def format_knowledge_digest(entries: list[dict]) -> str:

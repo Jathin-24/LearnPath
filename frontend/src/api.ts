@@ -312,7 +312,7 @@ export function getAnalytics(sessionId: string): Promise<AnalyticsResponse> {
   return request(`/analytics/${sessionId}`);
 }
 
-export async function uploadResume(sessionId: string, file: File): Promise<{ state: AppState }> {
+export async function uploadResume(sessionId: string, file: File): Promise<{ state: AppState; extraction_warning?: string }> {
   // Not routed through request() - a multipart body needs the browser to set
   // its own Content-Type boundary, not the fixed "application/json" header.
   const formData = new FormData();
@@ -324,7 +324,7 @@ export async function uploadResume(sessionId: string, file: File): Promise<{ sta
     const body = await res.text();
     throw new ApiError(res.status, body || res.statusText);
   }
-  return res.json() as Promise<{ state: AppState }>;
+  return res.json() as Promise<{ state: AppState; extraction_warning?: string }>;
 }
 
 // Not routed through request() - this is opened directly in a new tab

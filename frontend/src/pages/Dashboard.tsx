@@ -39,6 +39,7 @@ export default function Dashboard() {
   const [reviewAnswer, setReviewAnswer] = useState("");
   const [reviewResult, setReviewResult] = useState<{ correct: boolean; result: QuestionResult } | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
+  const [now] = useState(() => Date.now());
 
   useEffect(() => {
     if (!sessionId) {
@@ -143,9 +144,9 @@ export default function Dashboard() {
 
   // Reminder: purely derived from data already on state, no backend call.
   // If it's been a while since the last logged activity, nudge them back.
-  const lastActivity = state.progress_log.at(-1)?.timestamp;
-  const daysSinceActivity = lastActivity
-    ? (Date.now() - new Date(lastActivity).getTime()) / (1000 * 60 * 60 * 24)
+  const lastTs = state.progress_log.at(-1)?.timestamp;
+  const daysSinceActivity = lastTs
+    ? (now - new Date(lastTs).getTime()) / (1000 * 60 * 60 * 24)
     : 0;
   const showReminder = daysSinceActivity >= 1;
   const milestone =

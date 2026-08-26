@@ -37,7 +37,7 @@ export default function Chat() {
       navigate("/login", { replace: true });
       return;
     }
-    getState(sessionId).then(({ state }) => setState(state));
+    getState(sessionId).then(({ state }) => setState(state)).catch(() => navigate("/login", { replace: true }));
   }, [sessionId, navigate]);
 
   useEffect(() => {
@@ -56,7 +56,7 @@ export default function Chat() {
             ...prev,
             conversation_history: [
               ...prev.conversation_history,
-              { role: "user", content: message, timestamp: new Date().toISOString() },
+              { role: "user", content: message, timestamp: new Date().toISOString(), agent: null },
             ],
           }
         : prev,

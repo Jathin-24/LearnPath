@@ -100,7 +100,7 @@ export default function TopicDetail() {
       const found = state.roadmap?.nodes.find((n) => n.node_id === nodeId) ?? null;
       setNode(found);
       setNotesText(found?.notes ?? "");
-    });
+    }).catch(() => navigate("/login", { replace: true }));
   }, [sessionId, nodeId, navigate]);
 
   // Notes: debounce-autosaved 1s after the learner stops typing, plus a
@@ -250,6 +250,15 @@ export default function TopicDetail() {
       setNode((prev) =>
         prev && prev.project ? { ...prev, project: { ...prev.project, detailed_description } } : prev,
       );
+      setState((prev) => {
+        if (!prev?.roadmap) return prev;
+        const nodes = prev.roadmap.nodes.map((n) =>
+          n.node_id === nodeId && n.project
+            ? { ...n, project: { ...n.project, detailed_description } }
+            : n,
+        );
+        return { ...prev, roadmap: { ...prev.roadmap, nodes } };
+      });
     } catch {
       // no-op - the button staying put communicates the failure well enough here
     } finally {
@@ -472,7 +481,7 @@ export default function TopicDetail() {
                     <p className="truncate text-sm font-medium text-slate-200">🔗 {r.title}</p>
                     {r.snippet && <p className="mt-1 line-clamp-2 text-xs text-slate-500">{r.snippet}</p>}
                     <p className="mt-1 truncate text-xs text-indigo-400">
-                      {new URL(r.url).hostname.replace("www.", "")}
+                      {(() => { try { return new URL(r.url).hostname.replace("www.", ""); } catch { return r.url; } })()}
                     </p>
                   </a>
                 ))}

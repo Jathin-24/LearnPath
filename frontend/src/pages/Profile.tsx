@@ -88,6 +88,7 @@ export default function Profile() {
   const [uploading, setUploading] = useState(false);
   const [resumeSaved, setResumeSaved] = useState(false);
   const [resumeError, setResumeError] = useState<string | null>(null);
+  const [extractionWarning, setExtractionWarning] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [restarting, setRestarting] = useState(false);
@@ -183,12 +184,17 @@ export default function Profile() {
     setUploading(true);
     setResumeError(null);
     setResumeSaved(false);
+    setExtractionWarning(null);
     try {
-      const { state: newState } = await uploadResume(sessionId, file);
+      const result = await uploadResume(sessionId, file);
+      const newState = result.state;
+      console.log("[resume upload] response:", result);
+      console.log("[resume upload] extracted profile:", newState.learner_profile);
       setState(newState);
       // Auto-fill the form from whatever the resume extraction newly
       // populated - fills blanks only, so anything already typed in stays.
       const p = newState.learner_profile;
+      console.log("[resume merge] name:", p.name, "email:", p.email, "skills:", p.stated_known_skills);
       setName((prev) => prev || p.name || "");
       setEmail((prev) => prev || p.email || "");
       setAge((prev) => prev || (p.age ? String(p.age) : ""));
@@ -203,6 +209,9 @@ export default function Profile() {
       setCertifications(toCommaList(p.certifications));
       setExtraInfo((prev) => prev || p.extra_info || "");
       setResumeSaved(true);
+      if (result.extraction_warning) {
+        setExtractionWarning(result.extraction_warning);
+      }
     } catch {
       setResumeError("Couldn't read that PDF - try a different file.");
     } finally {
@@ -290,8 +299,11 @@ export default function Profile() {
       {uploading && (
         <BuildingIndicator label="Reading your resume and building your profile..." className="mt-3" />
       )}
-      {resumeSaved && !uploading && (
+      {resumeSaved && !uploading && !extractionWarning && (
         <p className="mt-2 text-sm text-green-400">Resume read successfully - fields below were auto-filled.</p>
+      )}
+      {extractionWarning && !uploading && (
+        <p className="mt-2 text-sm text-yellow-400">{extractionWarning}</p>
       )}
       {resumeError && <p className="mt-2 text-sm text-red-400">{resumeError}</p>}
     </div>

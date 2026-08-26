@@ -157,7 +157,7 @@ export default function Analytics() {
                 <Tooltip
                   contentStyle={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 8 }}
                   labelStyle={{ color: "#e2e8f0" }}
-                  formatter={(value: number) => [`${value} min`, "Time spent"]}
+                  formatter={(value) => [`${value} min`, "Time spent"]}
                 />
                 <Bar dataKey="minutes" fill="#6366f1" radius={[0, 4, 4, 0]} />
               </BarChart>

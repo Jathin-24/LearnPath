@@ -27,7 +27,7 @@ export default function Login() {
       }
       const { state } = await getState(auth.session_id);
       navigate(routeForStage(state.stage));
-    } catch (err) {
+    } catch {
       setError(
         mode === "login"
           ? "Couldn't log in - check your username and password."

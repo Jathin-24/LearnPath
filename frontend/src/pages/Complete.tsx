@@ -54,7 +54,7 @@ export default function Complete() {
       navigate("/login", { replace: true });
       return;
     }
-    getState(sessionId).then(({ state }) => setState(state));
+    getState(sessionId).then(({ state }) => setState(state)).catch(() => navigate("/login", { replace: true }));
   }, [sessionId, navigate]);
 
   async function handleStartNewGoal() {

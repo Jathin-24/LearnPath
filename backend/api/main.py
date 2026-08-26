@@ -91,13 +91,6 @@ app.add_middleware(
 )
 
 
-def _not_implemented(step: str) -> HTTPException:
-    return HTTPException(
-        status_code=501,
-        detail=f"Not implemented yet - waiting on: {step}",
-    )
-
-
 def _load_or_404(session_id: str) -> AppState:
     state = db.load_state(session_id)
     if state is None:
@@ -353,6 +346,8 @@ def _extract_knowledge_best_effort(state: AppState, text: str, source: str) -> N
 
 @app.post("/context/import")
 def import_context(payload: ImportContextRequest):
+    if not payload.imported_text or not payload.imported_text.strip():
+        raise HTTPException(status_code=400, detail="Imported text cannot be empty")
     state = _load_or_404(payload.session_id)
     state.learner_profile.imported_context_raw = payload.imported_text
     _extract_knowledge_best_effort(state, payload.imported_text, source="import")
@@ -412,19 +407,20 @@ def restart_goal(payload: SessionIdRequest):
     return {"state": state}
 
 
-def _merge_resume_profile_fields(state: AppState, text: str) -> None:
+def _merge_resume_profile_fields(state: AppState, text: str) -> str | None:
     """Auto-fills LearnerProfile fields straight from the resume, on top of
     the freeform knowledge-base entries _extract_knowledge_best_effort
     already writes. Only fills blanks / appends new list items - never
     overwrites something the learner already told us directly (a resume is
-    a hint, same treatment as resume_raw itself). Best-effort: a parse
-    failure here must not break the upload that already succeeded."""
+    a hint, same treatment as resume_raw itself). Returns an optional
+    warning string if extraction partially failed (regex fallback used)."""
     profile = state.learner_profile
+    warning = None
     try:
         extracted = extract_resume_profile(text)
     except Exception as exc:
         state.log(AgentName.PROFILER, "resume_profile_extraction_failed", detail=str(exc))
-        return
+        return "AI extraction failed entirely - no fields could be auto-filled."
 
     if not profile.name and extracted.name:
         profile.name = extracted.name
@@ -457,6 +453,17 @@ def _merge_resume_profile_fields(state: AppState, text: str) -> None:
             if item not in current:
                 current.append(item)
 
+    filled = sum(1 for v in [
+        profile.name, profile.email, profile.age, profile.gender,
+        profile.professional_role, profile.goal,
+    ] if v) + sum(1 for lst in [
+        profile.interests, profile.stated_known_skills,
+        profile.hobbies, profile.certifications,
+    ] if lst)
+    if filled == 0:
+        warning = "Couldn't extract any fields from this resume - try a different file or fill in manually."
+    return warning
+
 
 @app.post("/profile/resume")
 async def upload_resume(session_id: str = Form(...), file: UploadFile = File(...)):
@@ -481,11 +488,14 @@ async def upload_resume(session_id: str = Form(...), file: UploadFile = File(...
     # profiler.py/roadmap_generator.py's resume_raw/knowledge_digest
     # injection - already wired, this upload is what populates it.
     _extract_knowledge_best_effort(state, text, source="resume")
-    _merge_resume_profile_fields(state, text)
+    extraction_warning = _merge_resume_profile_fields(state, text)
     if state.user_id:
         db.save_resume_file(state.user_id, file.filename or "resume.pdf", file.content_type or "application/pdf", raw_bytes)
     db.save_state(state)
-    return {"state": state}
+    resp = {"state": state}
+    if extraction_warning:
+        resp["extraction_warning"] = extraction_warning
+    return resp
 
 
 @app.get("/profile/resume/file/{session_id}")
@@ -511,8 +521,15 @@ def get_state(session_id: str):
 @app.post("/roadmap/generate/path-a")
 def generate_path_a(payload: SessionIdRequest):
     state = _load_or_404(payload.session_id)
-    state = run_path_a(state)
-    state = run_roadmap_generator(state)
+    try:
+        state = run_path_a(state)
+        state = run_roadmap_generator(state)
+    except Exception as exc:
+        state.log(AgentName.ORCHESTRATOR, "path_a_generation_failed", detail=str(exc))
+        db.save_state(state)
+        raise HTTPException(status_code=502, detail="AI service error while generating roadmap") from exc
+    if state.roadmap is None:
+        raise HTTPException(status_code=500, detail="Roadmap generation produced no roadmap")
     db.save_state(state)
     return {"roadmap": state.roadmap, "path_type": state.roadmap.path_type}
 

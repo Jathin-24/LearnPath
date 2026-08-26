@@ -18,6 +18,7 @@ export default function RoadmapReview() {
   const [explanation, setExplanation] = useState<string | null>(null);
   const [explaining, setExplaining] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
   const [modifying, setModifying] = useState(false);
   const [showModifyBox, setShowModifyBox] = useState(false);
   const [modifyText, setModifyText] = useState("");
@@ -28,7 +29,7 @@ export default function RoadmapReview() {
       navigate("/login", { replace: true });
       return;
     }
-    getState(sessionId).then(({ state }) => setState(state));
+    getState(sessionId).then(({ state }) => setState(state)).catch(() => navigate("/login", { replace: true }));
   }, [sessionId, navigate]);
 
   if (!sessionId || !state || !state.roadmap) {
@@ -60,10 +61,12 @@ export default function RoadmapReview() {
 
   async function handleConfirm() {
     setConfirming(true);
+    setConfirmError(null);
     try {
       await confirmRoadmap(sessionId!);
       navigate("/dashboard");
     } catch {
+      setConfirmError("Couldn't confirm roadmap - try again.");
       setConfirming(false);
     }
   }
@@ -192,6 +195,7 @@ export default function RoadmapReview() {
           >
             {confirming ? "Confirming..." : "Confirm Roadmap"}
           </button>
+          {confirmError && <p className="w-full text-sm text-red-400">{confirmError}</p>}
           {!showModifyBox && (
             <button
               onClick={() => setShowModifyBox(true)}
