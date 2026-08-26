@@ -16,6 +16,7 @@ directly, bypassing the conversational chain - per docs/api_contract.md this
 is its own route, not just an internal side effect of /chat.
 """
 
+import asyncio
 import io
 import random
 import uuid
@@ -64,9 +65,14 @@ from backend.orchestrator.state_schema import (
 )
 
 
+async def _init_db_background():
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, db.init_db)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    db.init_db()
+    asyncio.create_task(_init_db_background())
     yield
 
 
