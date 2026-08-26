@@ -17,6 +17,8 @@ export default function Dashboard() {
   const [state, setState] = useState<AppState | null>(null);
   const [view, setView] = useState<"graph" | "list">("graph");
   const [regenerating, setRegenerating] = useState(false);
+  const [showRegenerateBox, setShowRegenerateBox] = useState(false);
+  const [regenerateText, setRegenerateText] = useState("");
   const [addingTopic, setAddingTopic] = useState(false);
   const [newTopic, setNewTopic] = useState("");
   const [savingTopic, setSavingTopic] = useState(false);
@@ -39,17 +41,14 @@ export default function Dashboard() {
 
   async function handleRegenerateRoadmap() {
     if (!sessionId) return;
-    const instructions = window.prompt(
-      "Regenerate every not-yet-completed topic's project and quiz. Anything you'd like added or " +
-        "changed? (Leave blank to just regenerate as-is.)",
-    );
-    if (instructions === null) return; // cancelled
     setRegenerating(true);
     try {
-      const { state: newState } = await regenerateRoadmap(sessionId, instructions || undefined);
+      const { state: newState } = await regenerateRoadmap(sessionId, regenerateText.trim() || undefined);
       setState(newState);
+      setShowRegenerateBox(false);
+      setRegenerateText("");
     } catch {
-      // no-op - the button staying put communicates the failure well enough here
+      // no-op - the box staying put communicates the failure well enough here
     } finally {
       setRegenerating(false);
     }
@@ -200,11 +199,11 @@ export default function Dashboard() {
                   + Add topic
                 </button>
                 <button
-                  onClick={handleRegenerateRoadmap}
+                  onClick={() => setShowRegenerateBox((v) => !v)}
                   disabled={regenerating}
                   className="rounded-md bg-slate-800 px-3 py-1 text-xs font-medium text-slate-300 transition hover:bg-slate-700 disabled:opacity-50"
                 >
-                  {regenerating ? "Regenerating..." : "♻ Regenerate roadmap"}
+                  ♻ Regenerate roadmap
                 </button>
                 <div className="flex gap-1 rounded-full bg-slate-900 p-1">
                   <button
@@ -243,6 +242,38 @@ export default function Dashboard() {
                 >
                   {savingTopic ? "Adding..." : "Add"}
                 </button>
+              </div>
+            )}
+            {showRegenerateBox && (
+              <div className="mb-3 rounded-xl border border-slate-800 bg-slate-900 p-3">
+                <label className="mb-1.5 block text-xs font-medium text-slate-400">
+                  Regenerate every not-yet-completed topic's project and quiz. Anything to add or
+                  change? (optional)
+                </label>
+                <textarea
+                  autoFocus
+                  value={regenerateText}
+                  onChange={(e) => setRegenerateText(e.target.value)}
+                  rows={2}
+                  placeholder="e.g. 'more real-world examples, less theory'"
+                  className="w-full resize-y rounded-md bg-slate-950 p-2 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <div className="mt-2 flex gap-2">
+                  <button
+                    onClick={handleRegenerateRoadmap}
+                    disabled={regenerating}
+                    className="rounded-full bg-indigo-500 px-4 py-1.5 text-xs font-semibold transition hover:bg-indigo-400 disabled:opacity-50"
+                  >
+                    {regenerating ? "Regenerating..." : "Regenerate"}
+                  </button>
+                  <button
+                    onClick={() => setShowRegenerateBox(false)}
+                    disabled={regenerating}
+                    className="rounded-full bg-slate-800 px-4 py-1.5 text-xs text-slate-300 transition hover:bg-slate-700"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             )}
             {view === "graph" ? (

@@ -14,8 +14,17 @@ docs/user_workflow.md: the system prompt answers genuine questions about
 the CURRENT topic directly, and only redirects (in the same natural reply,
 not a separate hard-coded string) if the learner is clearly trying to
 start an unrelated new goal.
+
+Personalization: also injects the same resume/knowledge-base context
+profiler.py already uses for onboarding - this used to only shape the
+ONE-TIME profile-building conversation, then went unused for the rest of
+the roadmap even though it's exactly the kind of thing that should color
+how a tutor explains things (a learner's stated background, interests,
+prior experience).
 """
 
+from backend.agents.knowledge_extractor import format_knowledge_digest
+from backend.common import db
 from backend.common.llm_client import LLMClient
 from backend.orchestrator.state_schema import AppState, NodeStatus
 
@@ -36,12 +45,40 @@ _FALLBACK_REPLY = (
 )
 
 
+def _personalization_context(state: AppState) -> str:
+    """Same resume_raw/knowledge-digest context profiler.py injects during
+    onboarding - reused here so it keeps shaping answers for the rest of
+    the roadmap, not just the first conversation."""
+    parts = []
+    profile = state.learner_profile
+    if profile.interests or profile.hobbies:
+        bits = [x for x in (profile.interests + profile.hobbies) if x]
+        if bits:
+            parts.append(f"Interests/hobbies: {', '.join(bits)}.")
+    if profile.stated_known_skills:
+        parts.append(f"Skills they've mentioned: {', '.join(profile.stated_known_skills)}.")
+    if profile.resume_raw:
+        parts.append(f"From their resume:\n{profile.resume_raw}")
+    if state.user_id:
+        digest = format_knowledge_digest(db.get_knowledge_for_user(state.user_id))
+        if digest:
+            parts.append(digest)
+    return "\n".join(parts)
+
+
 def run_topic_tutor(state: AppState, user_message: str, llm_client: LLMClient | None = None) -> str:
     node = _current_node(state)
     client = llm_client or LLMClient()
 
     recent_turns = "\n".join(
         f"{turn.role}: {turn.content}" for turn in state.conversation_history[-6:]
+    )
+    personalization = _personalization_context(state)
+    personalization_clause = (
+        f"\nWhat you know about this learner beyond this topic (use it to tailor examples/tone, "
+        f"don't just repeat it back): {personalization}\n"
+        if personalization
+        else ""
     )
 
     if node is None:
@@ -50,7 +87,7 @@ def run_topic_tutor(state: AppState, user_message: str, llm_client: LLMClient | 
         prompt = f"""You are a learning assistant. The learner has finished or doesn't yet \
 have an active roadmap topic. Answer their message helpfully in 2-4 sentences, warm and \
 direct - no preamble, no JSON, plain text only.
-
+{personalization_clause}
 Recent conversation:
 {recent_turns}
 
@@ -62,7 +99,7 @@ Learner's message: {user_message}"""
 The learner is currently working through ONE topic in their roadmap: "{node.topic}"\
 {f' ({node.course_summary})' if node.course_summary else ""}. Key concepts: {concepts}. \
 Their project for this topic: {project}.
-
+{personalization_clause}
 Answer their message in 2-5 sentences, warm and direct - as if you're their tutor for \
 this specific topic. If they ask a genuine question about "{node.topic}" or its concepts/ \
 project, answer it directly and helpfully. If they're clearly trying to start a different, \

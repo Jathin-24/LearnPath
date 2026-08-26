@@ -8,7 +8,7 @@ tests.
 """
 
 from backend.agents.path_a import run_path_a
-from backend.agents.path_b import run_path_b
+from backend.agents.path_b import generate_project_and_quiz_from_notes, run_path_b
 from backend.orchestrator.state_schema import (
     AgentName,
     AppState,
@@ -20,7 +20,7 @@ from backend.orchestrator.state_schema import (
 )
 
 
-def test_fill_node_populates_empty_stub():
+def _bare_rust_stub_state() -> AppState:
     state = AppState(session_id="test-path-b-fill")
     state.learner_profile.timeline = "1 month"
     state.roadmap = Roadmap(
@@ -33,18 +33,56 @@ def test_fill_node_populates_empty_stub():
             )
         ],
     )
+    return state
+
+
+def test_run_path_b_first_touch_fills_resources_only():
+    """First contact with a bare stub (no force) fills resources only -
+    project/quiz generation is deferred to generate_project_and_quiz_from_notes,
+    same lazy-generation reasoning as Path-A's final content (see
+    roadmap_generator.py's module docstring). Real Tavily + LLM calls."""
+    state = _bare_rust_stub_state()
 
     result = run_path_b(state, node_id="rust-ownership")
 
     node = result.roadmap.get_node("rust-ownership")
     assert node.cheat_sheet_notes
+    assert node.project is None
+    assert node.assessment is None
+    # at least one resource type should have been found for a well-known topic
+    assert node.web_sources or node.youtube_links
+
+
+def test_generate_project_and_quiz_from_notes_fills_lazily_from_existing_resources():
+    """The deferred half - triggered once a node's subtopics are all
+    resolved (see main.py's _maybe_generate_final_content). Generates from
+    the notes already fetched above, no re-search. Real LLM call."""
+    state = _bare_rust_stub_state()
+    result = run_path_b(state, node_id="rust-ownership")
+    node = result.roadmap.get_node("rust-ownership")
+
+    generate_project_and_quiz_from_notes(result, node)
+
     assert node.project is not None
     assert node.project.title
     assert node.assessment is not None
     assert len(node.assessment.questions) == 3
     assert node.estimated_days >= 1
-    # at least one resource type should have been found for a well-known topic
-    assert node.web_sources or node.youtube_links
+
+
+def test_run_path_b_force_fills_everything_at_once():
+    """force=True (an explicit learner "Regenerate") bypasses the lazy gate
+    entirely - resources AND project/quiz in one call. Real Tavily + LLM
+    calls."""
+    state = _bare_rust_stub_state()
+
+    result = run_path_b(state, node_id="rust-ownership", force=True)
+
+    node = result.roadmap.get_node("rust-ownership")
+    assert node.cheat_sheet_notes
+    assert node.project is not None
+    assert node.assessment is not None
+    assert len(node.assessment.questions) == 3
 
 
 def test_supplement_node_never_overwrites_existing_project_or_quiz():

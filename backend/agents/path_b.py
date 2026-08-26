@@ -11,22 +11,36 @@ more resources" action on any node, dataset or web-sourced.
 
 Two Tavily searches per topic (general web + YouTube-scoped), then LLM
 synthesis - same fail-loud retry-once pattern as every other agent
-(docs/final_decisions.md). Two shapes of fill, not one, because a node
-that already has a dataset-grounded project/quiz (a Path-A node, or a
-previously-filled Path-B node) must never have that overwritten just
-because the learner asked for more resources:
+(docs/final_decisions.md).
 
-  - _fill_node: an EMPTY stub (node.project is None) gets full content -
-    cheat sheet notes, web sources, YouTube links, AND a fresh project/quiz.
-  - _supplement_node: a node that already has content only gets its
-    resources (notes/sources/links) added or refreshed - project/quiz
-    untouched.
+Resources (cheat sheet notes/web sources/YouTube links) are still filled
+eagerly, at roadmap-gen time - they're useful to browse even before a
+learner starts a topic, and it's one search+synthesis call regardless.
+Project + quiz, per the user's "don't generate the quiz right now" request
+(the same reasoning that made subtopics and Path-A's final content lazy -
+see roadmap_generator.py's module docstring), are deferred: generated from
+the ALREADY-FETCHED notes (no re-search) once every subtopic is resolved,
+via generate_project_and_quiz_from_notes - called by
+roadmap_generator.generate_final_content, the same lazy trigger Path-A
+nodes use.
+
+Three shapes of fill, keyed off what a node already has:
+
+  - _fill_resources_only: no cheat_sheet_notes yet (a brand-new stub) -
+    search + synthesize notes, nothing else. What roadmap_generator.py's
+    web_nodes loop calls at roadmap-gen time.
+  - _supplement_node: already has resources - refresh notes/sources/links
+    only, project/quiz (if any) untouched. What a "Find more resources"
+    click uses on an already-filled node.
+  - _fill_node: full eager fill (resources AND project/quiz together) -
+    only reached via force=True, an explicit learner "Regenerate" request
+    that intentionally bypasses the lazy-generation gate.
 
 Standalone mode only creates bare stub nodes (topic + path_type, no
 content yet) - filling each one's content happens through the SAME
-_fill_node path as any other stub, via roadmap_generator.py's per-node
-loop calling back into run_path_b(node_id=...). One content-filling code
-path, not two.
+dispatch as any other stub, via roadmap_generator.py's per-node loop
+calling back into run_path_b(node_id=...). One content-filling code path,
+not two.
 """
 
 import json
@@ -46,6 +60,7 @@ from backend.orchestrator.state_schema import (
     Roadmap,
     RoadmapNode,
     TopicAssessment,
+    WebResource,
 )
 
 QUESTIONS_PER_NODE = 3
@@ -62,7 +77,7 @@ def _parse_json(raw_text: str) -> dict:
     return json.loads(cleaned)
 
 
-def _search_topic(search: TavilyClient, topic: str) -> tuple[list[dict], list[str]]:
+def _search_topic(search: TavilyClient, topic: str) -> tuple[list[dict], list[dict]]:
     web = search.search(f"{topic} tutorial guide", max_results=MAX_WEB_RESULTS)
     youtube = search.search(
         f"{topic} tutorial",
@@ -70,8 +85,8 @@ def _search_topic(search: TavilyClient, topic: str) -> tuple[list[dict], list[st
         include_domains=["youtube.com", "youtu.be"],
     )
     web_results = web.get("results", [])
-    youtube_links = [r["url"] for r in youtube.get("results", []) if r.get("url")]
-    return web_results, youtube_links
+    youtube_results = [r for r in youtube.get("results", []) if r.get("url")]
+    return web_results, youtube_results
 
 
 def _synthesize_notes(client: LLMClient, topic: str, web_results: list[dict]) -> str:
@@ -140,20 +155,28 @@ Write exactly {QUESTIONS_PER_NODE} questions, each with exactly 4 options and an
         return attempt(stricter)  # let this raise if it fails again - fail loud
 
 
-def _apply_resources(node: RoadmapNode, notes: str, web_results: list[dict], youtube_links: list[str]) -> None:
-    node.cheat_sheet_notes = notes
-    node.web_sources = [r["url"] for r in web_results if r.get("url")]
-    node.youtube_links = youtube_links
-
-
-def _fill_node(state: AppState, node: RoadmapNode, client: LLMClient, search: TavilyClient) -> None:
-    web_results, youtube_links = _search_topic(search, node.topic)
-    notes = _synthesize_notes(client, node.topic, web_results)
-    _apply_resources(node, notes, web_results, youtube_links)
-
-    content = _generate_project_and_quiz(
-        client, node.topic, notes, state.learner_profile.timeline, state.learner_profile.roadmap_instructions or ""
+def _to_web_resource(r: dict) -> WebResource:
+    return WebResource(
+        title=r.get("title") or r["url"],
+        url=r["url"],
+        snippet=(r.get("content") or "")[:220].strip(),
     )
+
+
+def _apply_resources(node: RoadmapNode, notes: str, web_results: list[dict], youtube_results: list[dict]) -> None:
+    node.cheat_sheet_notes = notes
+    node.web_sources = [_to_web_resource(r) for r in web_results if r.get("url")]
+    node.youtube_links = [_to_web_resource(r) for r in youtube_results if r.get("url")]
+
+
+def _fill_resources_only(state: AppState, node: RoadmapNode, client: LLMClient, search: TavilyClient) -> str:
+    web_results, youtube_results = _search_topic(search, node.topic)
+    notes = _synthesize_notes(client, node.topic, web_results)
+    _apply_resources(node, notes, web_results, youtube_results)
+    return notes
+
+
+def _apply_project_and_quiz(node: RoadmapNode, content: ProjectAndQuizOutput) -> None:
     node.project = ProjectAssignment(
         title=content.project_title,
         description=content.project_description,
@@ -163,10 +186,43 @@ def _fill_node(state: AppState, node: RoadmapNode, client: LLMClient, search: Ta
     node.estimated_days = max(1, content.estimated_days)
 
 
+def generate_project_and_quiz_from_notes(
+    state: AppState, node: RoadmapNode, llm_client: LLMClient | None = None
+) -> None:
+    """The deferred half of what _fill_node used to do in one shot -
+    generates project+quiz from node.cheat_sheet_notes WITHOUT a fresh
+    search, since resources were already fetched eagerly (see
+    _fill_resources_only, called at roadmap-gen time). Called by
+    roadmap_generator.generate_final_content once every subtopic is
+    resolved - the same lazy trigger Path-A dataset nodes use. Falls back
+    to fetching resources first only if they're somehow still missing."""
+    client = llm_client or LLMClient()
+    if node.cheat_sheet_notes is None:
+        _fill_resources_only(state, node, client, _search_client())
+
+    content = _generate_project_and_quiz(
+        client,
+        node.topic,
+        node.cheat_sheet_notes or "",
+        state.learner_profile.timeline,
+        state.learner_profile.roadmap_instructions or "",
+    )
+    _apply_project_and_quiz(node, content)
+
+
+def _fill_node(state: AppState, node: RoadmapNode, client: LLMClient, search: TavilyClient) -> None:
+    """Full eager fill (resources AND project/quiz together) - only reached
+    via force=True, an explicit learner "Regenerate" request that
+    intentionally bypasses the lazy-generation gate (see run_path_b)."""
+    notes = _fill_resources_only(state, node, client, search)
+    content = _generate_project_and_quiz(
+        client, node.topic, notes, state.learner_profile.timeline, state.learner_profile.roadmap_instructions or ""
+    )
+    _apply_project_and_quiz(node, content)
+
+
 def _supplement_node(state: AppState, node: RoadmapNode, client: LLMClient, search: TavilyClient) -> None:
-    web_results, youtube_links = _search_topic(search, node.topic)
-    notes = _synthesize_notes(client, node.topic, web_results)
-    _apply_resources(node, notes, web_results, youtube_links)
+    _fill_resources_only(state, node, client, search)
 
 
 class TopicPlanOutput(BaseModel):
@@ -223,18 +279,19 @@ def run_path_b(
         if node is None:
             raise ValueError(f"No node {node_id!r} in this roadmap")
 
-        if node.project is None or force:
-            # force=True (roadmap_generator.py's regenerate_node_content) is
-            # the third case alongside the two above: an explicit learner
-            # request to rewrite project/quiz too, not just refresh
-            # resources - same fill path as a brand-new stub.
+        if force:
+            # Explicit learner "Regenerate" request - rewrite everything,
+            # bypassing the lazy-generation gate entirely.
             _fill_node(state, node, client, search)
-            state.log(
-                AgentName.PATH_B,
-                "node_regenerated" if force else "node_filled_from_web",
-                detail=node.topic,
-            )
+            state.log(AgentName.PATH_B, "node_regenerated", detail=node.topic)
+        elif node.cheat_sheet_notes is None:
+            # First time this node's been touched - resources only, project/
+            # quiz deferred (see generate_project_and_quiz_from_notes).
+            _fill_resources_only(state, node, client, search)
+            state.log(AgentName.PATH_B, "node_resources_filled", detail=node.topic)
         else:
+            # Already has resources - a "Find more resources" refresh.
+            # Project/quiz (whether or not they exist yet) untouched.
             _supplement_node(state, node, client, search)
             state.log(AgentName.PATH_B, "node_resources_refreshed", detail=node.topic)
         return state

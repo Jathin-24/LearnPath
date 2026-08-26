@@ -18,7 +18,7 @@ Design notes:
 from datetime import datetime
 from enum import Enum
 from typing import Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +191,17 @@ class Subtopic(BaseModel):
     quiz: Optional[TopicAssessment] = None
 
 
+class WebResource(BaseModel):
+    """A single web/YouTube resource with enough detail to preview before
+    clicking through - title + short snippet, both pulled straight from the
+    Tavily search result already fetched to synthesize cheat_sheet_notes
+    (see path_b.py's _search_topic), no extra API calls needed."""
+
+    title: str
+    url: str
+    snippet: str = ""
+
+
 class RoadmapNode(BaseModel):
     node_id: str                                     # stable id, e.g. slugified topic name
     topic: str
@@ -203,9 +214,20 @@ class RoadmapNode(BaseModel):
     course_summary: Optional[str] = None
 
     # Path B fields (populated when path_type == PATH_B_OPEN_WEB)
-    youtube_links: list[str] = Field(default_factory=list)
+    youtube_links: list[WebResource] = Field(default_factory=list)
     cheat_sheet_notes: Optional[str] = None
-    web_sources: list[str] = Field(default_factory=list)
+    web_sources: list[WebResource] = Field(default_factory=list)
+
+    @field_validator("youtube_links", "web_sources", mode="before")
+    @classmethod
+    def _upgrade_bare_urls(cls, value: list) -> list:
+        """Sessions persisted before WebResource existed have these as
+        plain URL strings (backend/common/db.py's one-JSONB-column
+        persistence has no migrations) - upgrade them in place on load
+        rather than crashing every already-confirmed roadmap's state load."""
+        if not value:
+            return value
+        return [{"title": v, "url": v} if isinstance(v, str) else v for v in value]
 
     # Shared across both paths
     internal_prerequisites: list[str] = Field(default_factory=list)   # node_ids

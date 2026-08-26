@@ -95,6 +95,12 @@ export interface TopicAssessment {
 
 export type SubtopicStatus = "locked" | "available" | "passed" | "skipped";
 
+export interface WebResource {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
 export interface Subtopic {
   subtopic_id: string;
   name: string;
@@ -110,9 +116,9 @@ export interface RoadmapNode {
   course_name: string | null;
   course_search_link: string | null;
   course_summary: string | null;
-  youtube_links: string[];
+  youtube_links: WebResource[];
   cheat_sheet_notes: string | null;
-  web_sources: string[];
+  web_sources: WebResource[];
   internal_prerequisites: string[];
   external_prerequisite_concepts: string[];
   project: ProjectAssignment | null;

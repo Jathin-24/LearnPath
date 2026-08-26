@@ -51,3 +51,41 @@ def test_tutor_handles_no_active_node_without_crashing():
     reply = run_topic_tutor(state, "Can you help me with something?")
 
     assert reply.strip() != ""
+
+
+class _CapturingLLMClient:
+    """Stands in for LLMClient just to inspect the prompt actually sent -
+    real LLM calls elsewhere in this file cover response quality; this one
+    is about verifying resume/knowledge context reaches the prompt at all."""
+
+    def __init__(self):
+        self.last_prompt: str | None = None
+
+    def complete(self, prompt: str, max_tokens: int = 400) -> str:
+        self.last_prompt = prompt
+        return "A backend developer builds the server side of applications."
+
+
+def test_tutor_injects_resume_context_into_prompt():
+    """Regression test for the gap where resume/knowledge context only
+    shaped the one-time onboarding conversation (profiler.py) and was
+    silently dropped for every mid-roadmap Tutor message after that."""
+    state = AppState(session_id="test-tutor-personalization")
+    state.learner_profile.resume_raw = "Experienced baker who wants to switch into backend engineering."
+    state.roadmap = Roadmap(
+        path_type=PathType.PATH_A_DATASET,
+        nodes=[
+            RoadmapNode(
+                node_id="python-basics",
+                topic="Python Basics",
+                path_type=PathType.PATH_A_DATASET,
+                status=NodeStatus.AVAILABLE,
+            )
+        ],
+    )
+
+    client = _CapturingLLMClient()
+    run_topic_tutor(state, "What's a variable?", llm_client=client)
+
+    assert client.last_prompt is not None
+    assert "baker" in client.last_prompt

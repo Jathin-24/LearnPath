@@ -34,6 +34,8 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
   const [busyNodeId, setBusyNodeId] = useState<string | null>(null);
   const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
   const [editTopic, setEditTopic] = useState("");
+  const [regenerateBoxNodeId, setRegenerateBoxNodeId] = useState<string | null>(null);
+  const [regenerateText, setRegenerateText] = useState("");
   const editable = !!(sessionId && onChanged);
 
   function startEditing(e: React.MouseEvent, node: RoadmapNode) {
@@ -99,20 +101,23 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
     }
   }
 
+  function openRegenerateBox(e: React.MouseEvent, nodeId: string) {
+    e.stopPropagation();
+    setRegenerateBoxNodeId(nodeId);
+    setRegenerateText("");
+  }
+
   async function handleRegenerate(e: React.MouseEvent, nodeId: string) {
     e.stopPropagation();
     if (!sessionId || !onChanged) return;
-    const instructions = window.prompt(
-      "Regenerate this topic's project and quiz. Anything you'd like added or changed? " +
-        "(Leave blank to just regenerate as-is.)",
-    );
-    if (instructions === null) return; // cancelled
     setBusyNodeId(nodeId);
     try {
-      const { state } = await regenerateTopic(sessionId, nodeId, instructions || undefined);
+      const { state } = await regenerateTopic(sessionId, nodeId, regenerateText.trim() || undefined);
       onChanged(state);
+      setRegenerateBoxNodeId(null);
+      setRegenerateText("");
     } catch {
-      // no-op - the button staying put communicates the failure well enough here
+      // no-op - the box staying put communicates the failure well enough here
     } finally {
       setBusyNodeId(null);
     }
@@ -199,28 +204,30 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
 
           {(node.web_sources.length > 0 || node.youtube_links.length > 0) && (
             <div className="mt-2 flex flex-wrap gap-2">
-              {node.web_sources.map((url) => (
+              {node.web_sources.map((r) => (
                 <a
-                  key={url}
-                  href={url}
+                  key={r.url}
+                  href={r.url}
                   target="_blank"
                   rel="noreferrer"
+                  title={r.snippet || r.title}
                   onClick={(e) => e.stopPropagation()}
-                  className="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-300 hover:text-indigo-300"
+                  className="max-w-[14rem] truncate rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-300 hover:text-indigo-300"
                 >
-                  🔗 {new URL(url).hostname.replace("www.", "")}
+                  🔗 {r.title}
                 </a>
               ))}
-              {node.youtube_links.map((url) => (
+              {node.youtube_links.map((r) => (
                 <a
-                  key={url}
-                  href={url}
+                  key={r.url}
+                  href={r.url}
                   target="_blank"
                   rel="noreferrer"
+                  title={r.snippet || r.title}
                   onClick={(e) => e.stopPropagation()}
-                  className="rounded-full bg-red-950/50 px-2 py-0.5 text-xs text-red-300 hover:text-red-200"
+                  className="max-w-[14rem] truncate rounded-full bg-red-950/50 px-2 py-0.5 text-xs text-red-300 hover:text-red-200"
                 >
-                  ▶ YouTube
+                  ▶ {r.title}
                 </a>
               ))}
             </div>
@@ -241,15 +248,53 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
               >
                 {busyNodeId === node.node_id ? "Searching..." : "🔎 Find more resources"}
               </button>
-              {node.status !== "complete" && (
+              {node.status !== "complete" && regenerateBoxNodeId !== node.node_id && (
                 <button
-                  onClick={(e) => handleRegenerate(e, node.node_id)}
+                  onClick={(e) => openRegenerateBox(e, node.node_id)}
                   disabled={busyNodeId === node.node_id}
                   className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-700 disabled:opacity-30"
                 >
-                  {busyNodeId === node.node_id ? "Regenerating..." : "♻ Regenerate"}
+                  ♻ Regenerate
                 </button>
               )}
+            </div>
+          )}
+
+          {regenerateBoxNodeId === node.node_id && (
+            <div
+              onClick={(e) => e.stopPropagation()}
+              className="mt-2 rounded-md border border-slate-800 bg-slate-950 p-3"
+            >
+              <label className="mb-1.5 block text-xs font-medium text-slate-400">
+                Anything to add or change? (optional)
+              </label>
+              <textarea
+                autoFocus
+                value={regenerateText}
+                onChange={(e) => setRegenerateText(e.target.value)}
+                rows={2}
+                placeholder="e.g. 'more real-world examples'"
+                className="w-full resize-y rounded-md bg-slate-900 p-2 text-xs text-white outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <div className="mt-2 flex gap-2">
+                <button
+                  onClick={(e) => handleRegenerate(e, node.node_id)}
+                  disabled={busyNodeId === node.node_id}
+                  className="rounded-full bg-indigo-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-50"
+                >
+                  {busyNodeId === node.node_id ? "Regenerating..." : "Regenerate"}
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRegenerateBoxNodeId(null);
+                  }}
+                  disabled={busyNodeId === node.node_id}
+                  className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-300 transition hover:bg-slate-700"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           )}
 

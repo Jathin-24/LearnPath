@@ -73,17 +73,13 @@ def test_generate_confirm_explain_submit_flow():
         current_node = available[0]
         node_id = current_node["node_id"]
         # A node only becomes available once it's actually completable - see
-        # backend/api/main.py's _unlock_next_in_sequence. Round 7: a
-        # PATH_A_DATASET node's project/quiz are no longer eager - a
-        # freshly-unlocked one has subtopics but no final assessment until
-        # they're all resolved. PATH_B_OPEN_WEB nodes (e.g. an external
-        # prerequisite concept, often first in the sequence) still fill
-        # eagerly via run_path_b - see roadmap_generator.py's module
-        # docstring for why that split is intentional.
-        if current_node["path_type"] == "path_a_dataset":
-            assert current_node["assessment"] is None
-        else:
-            assert current_node["assessment"] is not None
+        # backend/api/main.py's _unlock_next_in_sequence. Round 7: neither
+        # path type's project/final quiz is eager any more - a freshly-
+        # unlocked node has subtopics but no final assessment until they're
+        # all resolved (a PATH_B_OPEN_WEB node - e.g. an external
+        # prerequisite concept, often first in the sequence - does have its
+        # resources/cheat_sheet_notes already, just not project/assessment).
+        assert current_node["assessment"] is None
         assert len(current_node["subtopics"]) > 0
         assert current_node["subtopics"][0]["status"] == "available"
         assert all(s["status"] == "locked" for s in current_node["subtopics"][1:])

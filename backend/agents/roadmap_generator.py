@@ -1,10 +1,11 @@
 """
 roadmap_generator.py
 
-Roadmap Generator Agent: finalizes the roadmap's topic skeleton for review
-(Path-B stub nodes get filled eagerly here via run_path_b; Path-A dataset
-nodes deliberately do NOT - see generate_final_content below), then pauses
-the graph for the learner.
+Roadmap Generator Agent: finalizes the roadmap's topic skeleton for review.
+Path-B stub nodes get their RESOURCES (cheat sheet notes/web sources/
+YouTube links) filled eagerly here via run_path_b - useful to browse even
+before starting. Neither path type gets its project/final quiz attached
+here any more - see generate_final_content below.
 
 Per docs/project_brief.md section 7 ("explicit generate -> review -> confirm"
 decision): this agent pauses the graph (next_agent=DONE) after assembling
@@ -36,7 +37,7 @@ import json
 from pydantic import BaseModel, ValidationError
 
 from backend.agents.knowledge_extractor import format_knowledge_digest
-from backend.agents.path_b import run_path_b
+from backend.agents.path_b import generate_project_and_quiz_from_notes, run_path_b
 from backend.common import db
 from backend.common.llm_client import LLMClient
 from backend.common.slugify import slugify
@@ -69,6 +70,16 @@ class NodeContentOutput(BaseModel):
 def _parse_json(raw_text: str) -> dict:
     cleaned = raw_text.replace("```json", "").replace("```", "").strip()
     return json.loads(cleaned)
+
+
+def _normalize_multiline(text: str) -> str:
+    """Some LLM responses double-escape newlines inside their JSON string
+    (i.e. the JSON contains a literal backslash-n rather than a real
+    newline), which json.loads then decodes as-is - the learner sees a
+    literal "\\n" in a long-form field instead of a line break. Cheap,
+    safe normalize rather than a stricter prompt that isn't reliably
+    followed."""
+    return text.replace("\\n", "\n").replace("\\r", "\r")
 
 
 def _build_prompt(
@@ -295,7 +306,10 @@ def generate_final_content(state: AppState, node: RoadmapNode, llm_client: LLMCl
         node.assessment = TopicAssessment(questions=content.questions)
         node.estimated_days = max(1, content.estimated_days)
     else:
-        run_path_b(state, node_id=node.node_id, llm_client=client, force=True)
+        # Resources (cheat_sheet_notes) already exist from the eager fill in
+        # run_roadmap_generator below - generate project/quiz from those
+        # directly rather than force-regenerating (which would re-search).
+        generate_project_and_quiz_from_notes(state, node, client)
 
 
 class ProjectExpansionOutput(BaseModel):
@@ -347,8 +361,8 @@ def expand_project_description(
         stricter = prompt + "\n\nRespond with ONLY valid JSON, no commentary."
         output = attempt(stricter)  # let this raise if it fails again - fail loud
 
-    node.project.detailed_description = output.detailed_description
-    return output.detailed_description
+    node.project.detailed_description = _normalize_multiline(output.detailed_description)
+    return node.project.detailed_description
 
 
 def regenerate_node_content(state: AppState, node: RoadmapNode, llm_client: LLMClient | None = None) -> None:
@@ -405,16 +419,14 @@ def _save_as_template(state: AppState) -> None:
 
 def run_roadmap_generator(state: AppState, llm_client: LLMClient | None = None) -> AppState:
     """Finalizes the roadmap skeleton for review. Per the user's "don't
-    generate the quiz right now" request, PATH_A_DATASET nodes' project +
-    final quiz are NOT attached here any more - they're deferred all the
-    way to generate_final_content, triggered once a node's subtopics are
-    all resolved (see main.py's _maybe_generate_final_content). PATH_B_OPEN_WEB
-    nodes still get filled eagerly via run_path_b below (one combined web-
-    search + synthesis call produces notes/resources/project/quiz together -
-    splitting that is out of scope here); the frontend gates showing their
-    project/final quiz on subtopic completion the same way, so the learner-
-    facing behavior stays consistent across both path types even though the
-    backend generation timing differs."""
+    generate the quiz right now" request, no node's project + final quiz
+    are attached here any more, for either path type - they're deferred
+    all the way to generate_final_content, triggered once a node's
+    subtopics are all resolved (see main.py's _maybe_generate_final_content).
+    PATH_B_OPEN_WEB nodes DO get their resources (cheat_sheet_notes/
+    web_sources/youtube_links) filled eagerly via run_path_b below - useful
+    to browse before starting, and cheap (one search+synthesis call,
+    already required regardless of when project/quiz generate)."""
     if state.roadmap is None:
         raise ValueError(
             "Roadmap Generator requires state.roadmap to already exist (Path-A must run first)"
@@ -432,10 +444,10 @@ def run_roadmap_generator(state: AppState, llm_client: LLMClient | None = None) 
     was_reused = bool(path_a_events) and path_a_events[-1].event_type == "roadmap_reused_from_template"
 
     for node in web_nodes:
-        if node.project is not None:
+        if node.cheat_sheet_notes is not None:
             continue  # already populated - reused from a template
-        # Fills project/quiz/cheat_sheet_notes/web_sources/youtube_links via
-        # web search + synthesis - see path_b.py's module docstring.
+        # Fills cheat_sheet_notes/web_sources/youtube_links via web search +
+        # synthesis - project/quiz stay deferred, see path_b.py's docstring.
         run_path_b(state, node_id=node.node_id, llm_client=client)
 
     state.stage = ConversationStage.ROADMAP_REVIEW

@@ -764,14 +764,18 @@ def _unlock_next_in_sequence(state: AppState, llm_client: LLMClient | None = Non
     """Exactly one node AVAILABLE at a time, in roadmap order (already
     topologically sorted by Path-A) - not "everything whose prerequisites
     are met," per the user's explicit "complete everything one by one"
-    request. A PATH_B_OPEN_WEB node without an assessment yet is skipped -
-    an unfilled stub (roadmap_generator.py normally fills every stub with
-    real content via Path-B before ROADMAP_REVIEW, but never unlock one
-    that isn't actually completable). PATH_A_DATASET nodes are always
-    treated as unlockable regardless of assessment presence - several
-    tests build lightweight dataset-node fixtures without one, matching
-    how the rest of the app already assumes a dataset node is completable
-    once Roadmap Generator has run.
+    request. A PATH_B_OPEN_WEB node without RESOURCES yet is skipped - a
+    genuinely unfilled stub (roadmap_generator.py fills every stub's
+    resources via Path-B before ROADMAP_REVIEW, but never unlock one that
+    isn't actually completable). This is deliberately keyed on
+    cheat_sheet_notes, not assessment/project - those are now generated
+    lazily (see generate_final_content) even for Path-B nodes, so a node
+    mid-progress legitimately has resources but no assessment yet, and
+    must still be unlockable. PATH_A_DATASET nodes are always treated as
+    unlockable regardless of assessment presence - several tests build
+    lightweight dataset-node fixtures without one, matching how the rest
+    of the app already assumes a dataset node is completable once Roadmap
+    Generator has run.
 
     Also generates the node's subtopic breakdown right before it goes
     LOCKED -> AVAILABLE - lazily, one module at a time, per the user's
@@ -780,7 +784,7 @@ def _unlock_next_in_sequence(state: AppState, llm_client: LLMClient | None = Non
     for node in state.roadmap.nodes:
         if node.status == NodeStatus.COMPLETE:
             continue
-        if node.path_type == PathType.PATH_B_OPEN_WEB and node.assessment is None:
+        if node.path_type == PathType.PATH_B_OPEN_WEB and node.cheat_sheet_notes is None:
             continue
         if node.status == NodeStatus.LOCKED:
             ensure_subtopics(state, node, llm_client)

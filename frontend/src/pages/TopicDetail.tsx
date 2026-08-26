@@ -277,6 +277,8 @@ export default function TopicDetail() {
     }
   }
 
+  const resolvedSubtopicCount =
+    node?.subtopics.filter((s) => s.status === "passed" || s.status === "skipped").length ?? 0;
   const allSubtopicsResolved =
     !node ||
     node.subtopics.length === 0 ||
@@ -457,28 +459,33 @@ export default function TopicDetail() {
 
           {(node.web_sources.length > 0 || node.youtube_links.length > 0) && (
             <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-              <h2 className="mb-2 text-sm font-semibold text-slate-300">Resources</h2>
-              <div className="flex flex-wrap gap-2">
-                {node.web_sources.map((url) => (
+              <h2 className="mb-3 text-sm font-semibold text-slate-300">Resources</h2>
+              <div className="space-y-2">
+                {node.web_sources.map((r) => (
                   <a
-                    key={url}
-                    href={url}
+                    key={r.url}
+                    href={r.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-300 hover:text-indigo-300"
+                    className="block rounded-lg border border-slate-800 bg-slate-950/50 p-3 transition hover:border-indigo-600"
                   >
-                    🔗 {new URL(url).hostname.replace("www.", "")}
+                    <p className="truncate text-sm font-medium text-slate-200">🔗 {r.title}</p>
+                    {r.snippet && <p className="mt-1 line-clamp-2 text-xs text-slate-500">{r.snippet}</p>}
+                    <p className="mt-1 truncate text-xs text-indigo-400">
+                      {new URL(r.url).hostname.replace("www.", "")}
+                    </p>
                   </a>
                 ))}
-                {node.youtube_links.map((url) => (
+                {node.youtube_links.map((r) => (
                   <a
-                    key={url}
-                    href={url}
+                    key={r.url}
+                    href={r.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="rounded-full bg-red-950/50 px-3 py-1 text-xs text-red-300 hover:text-red-200"
+                    className="block rounded-lg border border-red-900/60 bg-red-950/10 p-3 transition hover:border-red-600"
                   >
-                    ▶ YouTube
+                    <p className="truncate text-sm font-medium text-red-200">▶ {r.title}</p>
+                    {r.snippet && <p className="mt-1 line-clamp-2 text-xs text-red-300/70">{r.snippet}</p>}
                   </a>
                 ))}
               </div>
@@ -493,10 +500,17 @@ export default function TopicDetail() {
             {refreshingWeb ? "Searching..." : "🔎 Find more resources"}
           </button>
 
-          {!allSubtopicsResolved && (
-            <p className="text-xs text-slate-500">
-              Finish every sub-concept above to unlock this topic's final quiz.
-            </p>
+          {node.subtopics.length > 0 && !allSubtopicsResolved && (
+            <div className="rounded-xl border border-dashed border-slate-700 bg-slate-900/40 p-4 opacity-70">
+              <div className="flex items-center gap-2">
+                <span className="text-slate-500">🔒</span>
+                <h2 className="text-sm font-semibold text-slate-400">Final Quiz</h2>
+              </div>
+              <p className="mt-1.5 text-xs text-slate-500">
+                Unlocks once every sub-concept above is done ({resolvedSubtopicCount}/
+                {node.subtopics.length} so far).
+              </p>
+            </div>
           )}
 
           {node.assessment && allSubtopicsResolved && (
@@ -543,6 +557,20 @@ export default function TopicDetail() {
                 />
               )}
             </div>
+          )}
+
+          {node.status !== "complete" && (
+            <details className="group rounded-xl border border-dashed border-slate-700 bg-slate-900/40 opacity-70">
+              <summary className="flex cursor-pointer list-none items-center gap-2 p-4 text-sm font-semibold text-slate-400">
+                <span className="text-slate-500">🔒</span>
+                <span>Project</span>
+                <span className="ml-auto text-xs text-slate-600 transition group-open:rotate-180">▾</span>
+              </summary>
+              <p className="px-4 pb-4 text-xs text-slate-500">
+                Pass this topic's final quiz to unlock a hands-on project built around what you
+                just learned.
+              </p>
+            </details>
           )}
 
           {node.status === "complete" && node.project && (

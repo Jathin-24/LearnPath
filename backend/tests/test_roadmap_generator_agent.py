@@ -43,14 +43,15 @@ def _fixed_state() -> AppState:
     return state
 
 
-def test_roadmap_generator_defers_dataset_content_but_fills_web_nodes():
-    """PATH_A_DATASET nodes' project/quiz are deliberately NOT attached here
-    any more - generate_final_content defers that until every subtopic is
-    resolved (see roadmap_generator.py's module docstring), so no LLM call
-    is spent on a topic the learner hasn't reached. PATH_B_OPEN_WEB stub
-    nodes still get filled eagerly via a real web search + synthesis
-    (backend/agents/path_b.py) - splitting that combined call is out of
-    scope. Real Tavily + LLM calls for the stub node."""
+def test_roadmap_generator_defers_project_and_quiz_for_both_path_types():
+    """Neither path type gets project/quiz attached here any more -
+    generate_final_content defers both until every subtopic is resolved
+    (see roadmap_generator.py's module docstring), so no LLM call is spent
+    on a topic the learner hasn't reached. PATH_B_OPEN_WEB stub nodes DO
+    still get their resources (cheat_sheet_notes/web_sources/youtube_links)
+    filled eagerly via a real web search + synthesis (backend/agents/
+    path_b.py) - useful to browse before starting. Real Tavily + LLM calls
+    for the stub node."""
     state = _fixed_state()
 
     result = run_roadmap_generator(state)
@@ -60,9 +61,8 @@ def test_roadmap_generator_defers_dataset_content_but_fills_web_nodes():
     assert dataset_node.assessment is None
 
     stub_node = result.roadmap.get_node("networking-fundamentals")
-    assert stub_node.project is not None
-    assert stub_node.assessment is not None
-    assert len(stub_node.assessment.questions) == 3
+    assert stub_node.project is None
+    assert stub_node.assessment is None
     assert stub_node.cheat_sheet_notes
 
     assert result.stage == ConversationStage.ROADMAP_REVIEW
@@ -88,6 +88,23 @@ def test_generate_final_content_fills_dataset_node_lazily():
     for q in dataset_node.assessment.questions:
         assert len(q.options) == 4
         assert 0 <= q.correct_option_index < 4
+
+
+def test_generate_final_content_fills_web_node_lazily_from_existing_notes():
+    """Same lazy trigger, PATH_B_OPEN_WEB side - generates project/quiz
+    from the resources already fetched by run_roadmap_generator above, no
+    re-search (see path_b.py's generate_project_and_quiz_from_notes). Real
+    LLM call."""
+    state = _fixed_state()
+    result = run_roadmap_generator(state)
+    stub_node = result.roadmap.get_node("networking-fundamentals")
+
+    generate_final_content(result, stub_node)
+
+    assert stub_node.project is not None
+    assert stub_node.project.title
+    assert stub_node.assessment is not None
+    assert len(stub_node.assessment.questions) == 3
 
 
 def test_roadmap_generator_requires_existing_roadmap():
