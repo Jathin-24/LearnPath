@@ -1,17 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
+  expandProject,
   explainNode,
   getState,
   recordTimeSpent,
   refreshWebResources,
   submitAssessment,
+  toggleSubtopic,
   updateTopicNotes,
 } from "../api";
 import NavBar from "../components/NavBar";
 import QuizForm from "../components/QuizForm";
 import QuizResults from "../components/QuizResults";
 import PageSkeleton from "../components/Skeleton";
+import { useClipboardCopy } from "../hooks/useClipboardCopy";
+import { buildTopicPrompt } from "../promptTemplates";
 import { getSessionId } from "../session";
 import type { AppState, QuestionResult, RoadmapNode } from "../types";
 
@@ -37,6 +41,9 @@ export default function TopicDetail() {
   const [refreshingWeb, setRefreshingWeb] = useState(false);
   const [notesText, setNotesText] = useState("");
   const [notesSaved, setNotesSaved] = useState(true);
+  const [expanding, setExpanding] = useState(false);
+  const { copy: copyToClipboard } = useClipboardCopy();
+  const [copiedSubtopicId, setCopiedSubtopicId] = useState<string | null>(null);
 
   const secondsRef = useRef(0);
   const lastFlushRef = useRef(0);
@@ -140,6 +147,54 @@ export default function TopicDetail() {
     }
   }
 
+  async function handleToggleSubtopic(subtopicId: string, checked: boolean) {
+    if (!sessionId || !nodeId || !node) return;
+    // Optimistic - this is a purely informational tracker, not worth a
+    // loading state for.
+    setNode({
+      ...node,
+      subtopics: node.subtopics.map((s) => (s.subtopic_id === subtopicId ? { ...s, checked } : s)),
+    });
+    try {
+      await toggleSubtopic(sessionId, nodeId, subtopicId, checked);
+    } catch {
+      // revert on failure
+      setNode((prev) =>
+        prev
+          ? {
+              ...prev,
+              subtopics: prev.subtopics.map((s) =>
+                s.subtopic_id === subtopicId ? { ...s, checked: !checked } : s,
+              ),
+            }
+          : prev,
+      );
+    }
+  }
+
+  async function handleCopyTopicPrompt(subtopicName: string, subtopicId: string) {
+    if (!node) return;
+    const prompt = buildTopicPrompt(node, subtopicName, state?.learner_profile.goal ?? null, node.project);
+    await copyToClipboard(prompt);
+    setCopiedSubtopicId(subtopicId);
+    setTimeout(() => setCopiedSubtopicId(null), 2000);
+  }
+
+  async function handleExpandProject() {
+    if (!sessionId || !nodeId) return;
+    setExpanding(true);
+    try {
+      const { detailed_description } = await expandProject(sessionId, nodeId);
+      setNode((prev) =>
+        prev && prev.project ? { ...prev, project: { ...prev.project, detailed_description } } : prev,
+      );
+    } catch {
+      // no-op - the button staying put communicates the failure well enough here
+    } finally {
+      setExpanding(false);
+    }
+  }
+
   async function handleSubmitQuiz(answers: string[]) {
     if (!sessionId || !nodeId) return;
     setSubmitting(true);
@@ -210,6 +265,57 @@ export default function TopicDetail() {
                   </ul>
                 </div>
               )}
+              {node.project.detailed_description ? (
+                <div className="mt-3 border-t border-slate-800 pt-3">
+                  <p className="text-xs font-medium text-slate-400">Step-by-step:</p>
+                  <p className="mt-1.5 whitespace-pre-wrap text-xs text-slate-300">
+                    {node.project.detailed_description}
+                  </p>
+                </div>
+              ) : (
+                <button
+                  onClick={handleExpandProject}
+                  disabled={expanding}
+                  className="mt-3 rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-700 disabled:opacity-50"
+                >
+                  {expanding ? "Expanding..." : "Make this more detailed"}
+                </button>
+              )}
+            </div>
+          )}
+
+          {node.subtopics.length > 0 && (
+            <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
+              <div className="mb-2 flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-slate-300">Sub-concepts</h2>
+                <span className="text-xs text-slate-500">
+                  {node.subtopics.filter((s) => s.checked).length}/{node.subtopics.length} done
+                </span>
+              </div>
+              <ul className="space-y-1.5">
+                {node.subtopics.map((sub) => (
+                  <li key={sub.subtopic_id} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={sub.checked}
+                      onChange={(e) => handleToggleSubtopic(sub.subtopic_id, e.target.checked)}
+                      className="h-4 w-4 rounded border-slate-700 bg-slate-950 accent-indigo-500"
+                    />
+                    <span
+                      className={`flex-1 text-sm ${sub.checked ? "text-slate-500 line-through" : "text-slate-200"}`}
+                    >
+                      {sub.name}
+                    </span>
+                    <button
+                      onClick={() => handleCopyTopicPrompt(sub.name, sub.subtopic_id)}
+                      title="Copy a prompt to learn this sub-concept in another AI tool"
+                      className="shrink-0 rounded-md bg-slate-800 px-2 py-0.5 text-xs text-slate-400 transition hover:bg-slate-700 hover:text-slate-200"
+                    >
+                      {copiedSubtopicId === sub.subtopic_id ? "Copied!" : "Copy prompt"}
+                    </button>
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 

@@ -63,6 +63,7 @@ export interface ProjectAssignment {
   title: string;
   description: string;
   success_criteria: string[];
+  detailed_description: string | null;
 }
 
 export interface MCQQuestion {
@@ -87,6 +88,12 @@ export interface TopicAssessment {
   attempts: number;
 }
 
+export interface Subtopic {
+  subtopic_id: string;
+  name: string;
+  checked: boolean;
+}
+
 export interface RoadmapNode {
   node_id: string;
   topic: string;
@@ -107,6 +114,7 @@ export interface RoadmapNode {
   key_concepts: string[];
   estimated_days: number;
   notes: string;
+  subtopics: Subtopic[];
 }
 
 export interface Roadmap {
@@ -131,6 +139,7 @@ export interface ChatTurn {
 
 export interface AppState {
   session_id: string;
+  user_id: string | null;
   stage: ConversationStage;
   learner_profile: LearnerProfile;
   skill_gap_map: SkillGapMap;
@@ -141,6 +150,16 @@ export interface AppState {
   last_user_message: string | null;
   pending_quiz: MCQQuestion[];
   pending_checklist_concepts: string[];
+}
+
+// Not part of AppState - a separate per-user table (backend/common/db.py's
+// user_knowledge), fetched via GET /knowledge/{session_id}.
+export interface KnowledgeEntry {
+  id: string;
+  category: string;
+  content: string;
+  source: string;
+  created_at: string;
 }
 
 export interface DashboardResponse {

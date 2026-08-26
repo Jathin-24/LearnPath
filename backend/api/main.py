@@ -29,13 +29,20 @@ from pypdf import PdfReader
 
 from backend.agents.assessment import grade_pending_quiz, submit_checklist_concepts
 from backend.agents.explainer import explain_node as run_explainer
+from backend.agents.knowledge_extractor import extract_knowledge
 from backend.agents.path_a import run_path_a
 from backend.agents.path_b import run_path_b
-from backend.agents.roadmap_generator import run_roadmap_generator
+from backend.agents.roadmap_generator import (
+    ensure_subtopics,
+    expand_project_description,
+    regenerate_node_content,
+    run_roadmap_generator,
+)
 from backend.agents.tutor import run_topic_tutor
 from backend.common import db
 from backend.common.grading import grade_mcq_batch
 from backend.common.llm_client import LLMClient
+from backend.common.slugify import slugify
 from backend.orchestrator.graph import build_graph
 from backend.orchestrator.state_schema import (
     AgentName,
@@ -45,6 +52,7 @@ from backend.orchestrator.state_schema import (
     LearnerProfile,
     NodeStatus,
     PathType,
+    RoadmapNode,
     SkillGapMap,
 )
 
@@ -128,7 +136,7 @@ def signup(payload: SignupRequest):
     password_hash = bcrypt.hashpw(payload.password.encode(), bcrypt.gensalt()).decode()
     user_id = db.create_user(payload.username, password_hash)
 
-    state = AppState(session_id=str(uuid.uuid4()))
+    state = AppState(session_id=str(uuid.uuid4()), user_id=user_id)
     db.create_session(state, user_id=user_id)
     return {"user_id": user_id, "username": payload.username, "session_id": state.session_id}
 
@@ -143,7 +151,7 @@ def login(payload: LoginRequest):
     if session_id is None:
         # Shouldn't normally happen (signup always creates one) - don't
         # strand a valid user without a session if it does.
-        state = AppState(session_id=str(uuid.uuid4()))
+        state = AppState(session_id=str(uuid.uuid4()), user_id=user["user_id"])
         db.create_session(state, user_id=user["user_id"])
         session_id = state.session_id
 
@@ -289,12 +297,47 @@ class ImportContextRequest(BaseModel):
     imported_text: str
 
 
+def _extract_knowledge_best_effort(state: AppState, text: str, source: str) -> None:
+    """Structured extraction is an enhancement on top of the raw text that's
+    already saved - never let a parse/LLM failure break the caller's
+    request (same philosophy as roadmap_generator.py's template caching)."""
+    if not state.user_id:
+        return
+    try:
+        entries = extract_knowledge(text, source)
+        db.add_knowledge_entries(state.user_id, entries)
+    except Exception as exc:
+        state.log(AgentName.PROFILER, "knowledge_extraction_failed", detail=str(exc))
+
+
 @app.post("/context/import")
 def import_context(payload: ImportContextRequest):
     state = _load_or_404(payload.session_id)
     state.learner_profile.imported_context_raw = payload.imported_text
+    _extract_knowledge_best_effort(state, payload.imported_text, source="import")
     db.save_state(state)
     return {"state": state}
+
+
+@app.get("/knowledge/{session_id}")
+def get_knowledge(session_id: str):
+    state = _load_or_404(session_id)
+    if not state.user_id:
+        return {"entries": []}
+    return {"entries": db.get_knowledge_for_user(state.user_id)}
+
+
+class DeleteKnowledgeRequest(BaseModel):
+    session_id: str
+
+
+@app.delete("/knowledge/{entry_id}")
+def delete_knowledge(entry_id: str, payload: DeleteKnowledgeRequest):
+    state = _load_or_404(payload.session_id)
+    if not state.user_id:
+        raise HTTPException(status_code=400, detail="No knowledge base for this session")
+    db.delete_knowledge_entry(entry_id, state.user_id)
+    return {"deleted": entry_id}
 
 
 @app.post("/goal/restart")
@@ -345,6 +388,7 @@ async def upload_resume(session_id: str = Form(...), file: UploadFile = File(...
         raise HTTPException(status_code=400, detail="No extractable text found in that PDF")
 
     state.learner_profile.resume_raw = text
+    _extract_knowledge_best_effort(state, text, source="resume")
     db.save_state(state)
     return {"state": state}
 
@@ -370,7 +414,7 @@ def confirm_roadmap(payload: SessionIdRequest):
         raise HTTPException(status_code=400, detail="No roadmap to confirm for this session")
 
     state.stage = ConversationStage.IN_PROGRESS
-    _unlock_next_in_sequence(state)
+    _unlock_next_in_sequence(state, LLMClient())
 
     state.log(AgentName.ORCHESTRATOR, "roadmap_confirmed", detail=f"{len(state.roadmap.nodes)} nodes")
     db.save_state(state)
@@ -434,6 +478,130 @@ def skip_roadmap_node(node_id: str, payload: SessionIdRequest):
     return {"state": state}
 
 
+class AddNodeRequest(BaseModel):
+    session_id: str
+    topic: str
+    key_concepts: list[str] = []
+
+
+@app.post("/roadmap/node/add")
+def add_roadmap_node(payload: AddNodeRequest):
+    """Learner-added custom topic. Defaults to PATH_B_OPEN_WEB - no dataset
+    match needed, content fills in lazily via run_path_b the same as any
+    other web node. Always appended at the end, LOCKED - it'll only unlock
+    once every existing node ahead of it is complete, same sequential model
+    as everything else (_unlock_next_in_sequence)."""
+    state = _load_or_404(payload.session_id)
+    if not payload.topic.strip():
+        raise HTTPException(status_code=400, detail="Topic name is required")
+    if state.roadmap is None:
+        raise HTTPException(status_code=400, detail="No roadmap for this session")
+
+    base_id = slugify(payload.topic)
+    node_id = base_id
+    existing_ids = {n.node_id for n in state.roadmap.nodes}
+    suffix = 2
+    while node_id in existing_ids:
+        node_id = f"{base_id}-{suffix}"
+        suffix += 1
+
+    state.roadmap.nodes.append(
+        RoadmapNode(
+            node_id=node_id,
+            topic=payload.topic.strip(),
+            path_type=PathType.PATH_B_OPEN_WEB,
+            key_concepts=payload.key_concepts,
+        )
+    )
+    db.save_state(state)
+    return {"state": state}
+
+
+class EditNodeRequest(BaseModel):
+    session_id: str
+    topic: str | None = None
+    key_concepts: list[str] | None = None
+
+
+@app.patch("/roadmap/node/{node_id}")
+def edit_roadmap_node(node_id: str, payload: EditNodeRequest):
+    """Restricted to LOCKED nodes, consistent with reorder/skip - never edit
+    a topic the learner has already started or completed."""
+    state = _load_or_404(payload.session_id)
+    if state.roadmap is None:
+        raise HTTPException(status_code=400, detail="No roadmap for this session")
+    node = state.roadmap.get_node(node_id)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"No node {node_id!r} in this roadmap")
+    if node.status != NodeStatus.LOCKED:
+        raise HTTPException(status_code=400, detail="Only upcoming (locked) topics can be edited")
+
+    if payload.topic is not None and payload.topic.strip():
+        node.topic = payload.topic.strip()
+    if payload.key_concepts is not None:
+        node.key_concepts = payload.key_concepts
+
+    db.save_state(state)
+    return {"state": state}
+
+
+@app.post("/topic/{node_id}/project/expand")
+def expand_project(node_id: str, payload: SessionIdRequest):
+    """One extra LLM call, only on explicit request - see
+    roadmap_generator.py's expand_project_description. Cached onto
+    node.project.detailed_description so asking twice doesn't re-spend a
+    call."""
+    state = _load_or_404(payload.session_id)
+    if state.roadmap is None:
+        raise HTTPException(status_code=400, detail="No roadmap for this session")
+    node = state.roadmap.get_node(node_id)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"No node {node_id!r} in this roadmap")
+    if node.project is None:
+        raise HTTPException(status_code=400, detail=f"Node {node_id!r} has no project yet")
+
+    detailed = expand_project_description(state, node, LLMClient())
+    db.save_state(state)
+    return {"detailed_description": detailed}
+
+
+@app.post("/topic/{node_id}/regenerate")
+def regenerate_topic(node_id: str, payload: SessionIdRequest):
+    """Force-regenerates one module's project/quiz (and subtopics, if it
+    already had any), picking up any profile/knowledge-base changes made
+    since it was first generated. Refused for COMPLETE nodes - never
+    rewrite a module the learner has already been graded on."""
+    state = _load_or_404(payload.session_id)
+    if state.roadmap is None:
+        raise HTTPException(status_code=400, detail="No roadmap for this session")
+    node = state.roadmap.get_node(node_id)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"No node {node_id!r} in this roadmap")
+    if node.status == NodeStatus.COMPLETE:
+        raise HTTPException(status_code=400, detail="Can't regenerate a completed topic")
+
+    regenerate_node_content(state, node, LLMClient())
+    db.save_state(state)
+    return {"state": state}
+
+
+@app.post("/roadmap/regenerate")
+def regenerate_roadmap(payload: SessionIdRequest):
+    """Same as /topic/{id}/regenerate, applied to every not-yet-completed
+    node in the roadmap."""
+    state = _load_or_404(payload.session_id)
+    if state.roadmap is None:
+        raise HTTPException(status_code=400, detail="No roadmap for this session")
+
+    client = LLMClient()
+    for node in state.roadmap.nodes:
+        if node.status != NodeStatus.COMPLETE:
+            regenerate_node_content(state, node, client)
+
+    db.save_state(state)
+    return {"state": state}
+
+
 @app.post("/roadmap/explain/{node_id}")
 def explain_roadmap_node(node_id: str, payload: SessionIdRequest):
     state = _load_or_404(payload.session_id)
@@ -473,7 +641,7 @@ class AssessmentSubmitRequest(BaseModel):
     answers: list[str]  # one selected option string per question, in order
 
 
-def _unlock_next_in_sequence(state: AppState) -> None:
+def _unlock_next_in_sequence(state: AppState, llm_client: LLMClient | None = None) -> None:
     """Exactly one node AVAILABLE at a time, in roadmap order (already
     topologically sorted by Path-A) - not "everything whose prerequisites
     are met," per the user's explicit "complete everything one by one"
@@ -484,13 +652,19 @@ def _unlock_next_in_sequence(state: AppState) -> None:
     treated as unlockable regardless of assessment presence - several
     tests build lightweight dataset-node fixtures without one, matching
     how the rest of the app already assumes a dataset node is completable
-    once Roadmap Generator has run."""
+    once Roadmap Generator has run.
+
+    Also generates the node's subtopic breakdown right before it goes
+    LOCKED -> AVAILABLE - lazily, one module at a time, per the user's
+    "don't spend LLM calls on modules the learner hasn't reached yet"
+    request (see roadmap_generator.py's ensure_subtopics)."""
     for node in state.roadmap.nodes:
         if node.status == NodeStatus.COMPLETE:
             continue
         if node.path_type == PathType.PATH_B_OPEN_WEB and node.assessment is None:
             continue
         if node.status == NodeStatus.LOCKED:
+            ensure_subtopics(state, node, llm_client)
             node.status = NodeStatus.AVAILABLE
         break  # first non-complete, completable node found, unlocked or not - stop
 
@@ -521,7 +695,7 @@ def submit_assessment(node_id: str, payload: AssessmentSubmitRequest):
     if passed:
         node.status = NodeStatus.COMPLETE
         node.completed_at = datetime.now(timezone.utc)
-        _unlock_next_in_sequence(state)
+        _unlock_next_in_sequence(state, LLMClient())
 
     state.log(
         AgentName.ASSESSMENT,
@@ -570,6 +744,30 @@ def update_topic_notes(node_id: str, payload: TopicNotesRequest):
     node.notes = payload.notes
     db.save_state(state)
     return {"notes": node.notes}
+
+
+class SubtopicToggleRequest(BaseModel):
+    session_id: str
+    checked: bool
+
+
+@app.patch("/topic/{node_id}/subtopic/{subtopic_id}")
+def toggle_subtopic(node_id: str, subtopic_id: str, payload: SubtopicToggleRequest):
+    """Informational progress tracker only - never affects NodeStatus/
+    completion, which stays gated by the quiz (submit_assessment)."""
+    state = _load_or_404(payload.session_id)
+    if state.roadmap is None:
+        raise HTTPException(status_code=400, detail="No roadmap for this session")
+    node = state.roadmap.get_node(node_id)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"No node {node_id!r} in this roadmap")
+    subtopic = next((s for s in node.subtopics if s.subtopic_id == subtopic_id), None)
+    if subtopic is None:
+        raise HTTPException(status_code=404, detail=f"No subtopic {subtopic_id!r} on that node")
+
+    subtopic.checked = payload.checked
+    db.save_state(state)
+    return {"state": state}
 
 
 class ProfileUpdateRequest(BaseModel):

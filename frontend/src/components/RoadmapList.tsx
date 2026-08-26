@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { refreshWebResources, reorderRoadmapNode, skipRoadmapNode } from "../api";
+import {
+  editRoadmapNode,
+  refreshWebResources,
+  regenerateTopic,
+  reorderRoadmapNode,
+  skipRoadmapNode,
+} from "../api";
 import type { AppState, RoadmapNode } from "../types";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -26,7 +32,30 @@ interface Props {
 export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }: Props) {
   const topicById = Object.fromEntries(nodes.map((n) => [n.node_id, n.topic]));
   const [busyNodeId, setBusyNodeId] = useState<string | null>(null);
+  const [editingNodeId, setEditingNodeId] = useState<string | null>(null);
+  const [editTopic, setEditTopic] = useState("");
   const editable = !!(sessionId && onChanged);
+
+  function startEditing(e: React.MouseEvent, node: RoadmapNode) {
+    e.stopPropagation();
+    setEditingNodeId(node.node_id);
+    setEditTopic(node.topic);
+  }
+
+  async function handleSaveEdit(e: React.MouseEvent, nodeId: string) {
+    e.stopPropagation();
+    if (!sessionId || !onChanged || !editTopic.trim()) return;
+    setBusyNodeId(nodeId);
+    try {
+      const { state } = await editRoadmapNode(sessionId, nodeId, { topic: editTopic.trim() });
+      onChanged(state);
+      setEditingNodeId(null);
+    } catch {
+      // no-op - stay in edit mode so the learner can retry
+    } finally {
+      setBusyNodeId(null);
+    }
+  }
 
   async function handleReorder(e: React.MouseEvent, nodeId: string, direction: "up" | "down") {
     e.stopPropagation();
@@ -70,6 +99,22 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
     }
   }
 
+  async function handleRegenerate(e: React.MouseEvent, nodeId: string) {
+    e.stopPropagation();
+    if (!sessionId || !onChanged) return;
+    if (!window.confirm("Regenerate this topic's project and quiz? This replaces its current content."))
+      return;
+    setBusyNodeId(nodeId);
+    try {
+      const { state } = await regenerateTopic(sessionId, nodeId);
+      onChanged(state);
+    } catch {
+      // no-op - the button staying put communicates the failure well enough here
+    } finally {
+      setBusyNodeId(null);
+    }
+  }
+
   return (
     <div className="space-y-3">
       {nodes.map((node, i) => (
@@ -83,9 +128,19 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
           } ${onNodeClick ? "cursor-pointer hover:border-indigo-500" : ""}`}
         >
           <div className="flex items-center justify-between gap-3">
-            <h3 className="font-semibold">
-              {i + 1}. {node.topic}
-            </h3>
+            {editingNodeId === node.node_id ? (
+              <input
+                autoFocus
+                value={editTopic}
+                onChange={(e) => setEditTopic(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full rounded-md bg-slate-950 p-1.5 text-sm font-semibold outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+            ) : (
+              <h3 className="font-semibold">
+                {i + 1}. {node.topic}
+              </h3>
+            )}
             <div className="flex shrink-0 items-center gap-2">
               {node.estimated_days > 0 && (
                 <span className="text-xs text-slate-500">~{node.estimated_days}d</span>
@@ -175,7 +230,7 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
           )}
 
           {editable && (
-            <div className="mt-3 flex gap-2 border-t border-slate-800 pt-2">
+            <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-800 pt-2">
               <button
                 onClick={(e) => handleRefreshWeb(e, node.node_id)}
                 disabled={busyNodeId === node.node_id}
@@ -183,32 +238,71 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
               >
                 {busyNodeId === node.node_id ? "Searching..." : "🔎 Find more resources"}
               </button>
+              {node.status !== "complete" && (
+                <button
+                  onClick={(e) => handleRegenerate(e, node.node_id)}
+                  disabled={busyNodeId === node.node_id}
+                  className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-700 disabled:opacity-30"
+                >
+                  {busyNodeId === node.node_id ? "Regenerating..." : "♻ Regenerate"}
+                </button>
+              )}
             </div>
           )}
 
           {editable && node.status === "locked" && (
-            <div className="mt-3 flex gap-2 border-t border-slate-800 pt-2">
-              <button
-                onClick={(e) => handleReorder(e, node.node_id, "up")}
-                disabled={busyNodeId === node.node_id || i === 0}
-                className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-700 disabled:opacity-30"
-              >
-                ▲ Move up
-              </button>
-              <button
-                onClick={(e) => handleReorder(e, node.node_id, "down")}
-                disabled={busyNodeId === node.node_id || i === nodes.length - 1}
-                className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-700 disabled:opacity-30"
-              >
-                ▼ Move down
-              </button>
-              <button
-                onClick={(e) => handleSkip(e, node.node_id)}
-                disabled={busyNodeId === node.node_id}
-                className="rounded-md bg-red-950 px-2 py-1 text-xs text-red-300 transition hover:bg-red-900"
-              >
-                Skip
-              </button>
+            <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-800 pt-2">
+              {editingNodeId === node.node_id ? (
+                <>
+                  <button
+                    onClick={(e) => handleSaveEdit(e, node.node_id)}
+                    disabled={busyNodeId === node.node_id || !editTopic.trim()}
+                    className="rounded-md bg-indigo-600 px-2 py-1 text-xs text-white transition hover:bg-indigo-500 disabled:opacity-30"
+                  >
+                    Save
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setEditingNodeId(null);
+                    }}
+                    className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-700"
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={(e) => handleReorder(e, node.node_id, "up")}
+                    disabled={busyNodeId === node.node_id || i === 0}
+                    className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-700 disabled:opacity-30"
+                  >
+                    ▲ Move up
+                  </button>
+                  <button
+                    onClick={(e) => handleReorder(e, node.node_id, "down")}
+                    disabled={busyNodeId === node.node_id || i === nodes.length - 1}
+                    className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-700 disabled:opacity-30"
+                  >
+                    ▼ Move down
+                  </button>
+                  <button
+                    onClick={(e) => startEditing(e, node)}
+                    disabled={busyNodeId === node.node_id}
+                    className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-700 disabled:opacity-30"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={(e) => handleSkip(e, node.node_id)}
+                    disabled={busyNodeId === node.node_id}
+                    className="rounded-md bg-red-950 px-2 py-1 text-xs text-red-300 transition hover:bg-red-900"
+                  >
+                    Skip
+                  </button>
+                </>
+              )}
             </div>
           )}
         </div>

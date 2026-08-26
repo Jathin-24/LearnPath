@@ -132,6 +132,10 @@ class ProjectAssignment(BaseModel):
     title: str
     description: str
     success_criteria: list[str] = Field(default_factory=list)  # "success looks like" checklist
+    # Longer, step-by-step version generated on demand (see
+    # backend/api/main.py's /topic/{node_id}/project/expand) - additive, the
+    # short `description` above stays as-is for list views.
+    detailed_description: Optional[str] = None
 
 
 class MCQQuestion(BaseModel):
@@ -148,6 +152,14 @@ class TopicAssessment(BaseModel):
     pass_threshold: float = 0.7
     last_score: Optional[float] = None
     attempts: int = 0
+
+
+class Subtopic(BaseModel):
+    subtopic_id: str
+    name: str
+    checked: bool = False   # learner's own progress tracker - informational only,
+                             # never gates NodeStatus/completion (that stays quiz-gated,
+                             # see backend/api/main.py's submit_assessment)
 
 
 class RoadmapNode(BaseModel):
@@ -184,6 +196,13 @@ class RoadmapNode(BaseModel):
     # per-node LLM call that already generates the project/quiz).
     key_concepts: list[str] = Field(default_factory=list)
     estimated_days: int = 0
+
+    # Sub-concept breakdown, generated lazily (only once this node is
+    # unlocked - see main.py's _unlock_next_in_sequence) rather than eagerly
+    # alongside project/assessment, per the user's explicit "don't spend LLM
+    # calls on modules the learner hasn't reached yet" request. Empty until
+    # then. Checkboxes are informational only - see Subtopic.checked.
+    subtopics: list[Subtopic] = Field(default_factory=list)
 
     # The learner's own free-text notes on this topic - never shown or used
     # anywhere else, purely their own reference (active recall/journaling).
@@ -234,6 +253,11 @@ class ChatTurn(BaseModel):
 
 class AppState(BaseModel):
     session_id: str
+    # Set at session creation for authenticated users (see backend/api/main.py's
+    # /auth/signup and /auth/login); None for anonymous/guest sessions. Lets
+    # agents resolve the per-user knowledge base (backend/common/db.py's
+    # user_knowledge table) without threading an extra argument everywhere.
+    user_id: Optional[str] = None
     stage: ConversationStage = ConversationStage.ONBOARDING
 
     learner_profile: LearnerProfile = Field(default_factory=LearnerProfile)

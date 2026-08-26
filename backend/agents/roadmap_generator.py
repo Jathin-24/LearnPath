@@ -31,9 +31,11 @@ import json
 
 from pydantic import BaseModel, ValidationError
 
+from backend.agents.knowledge_extractor import format_knowledge_digest
 from backend.agents.path_b import run_path_b
 from backend.common import db
 from backend.common.llm_client import LLMClient
+from backend.common.slugify import slugify
 from backend.orchestrator.state_schema import (
     AgentName,
     AppState,
@@ -41,6 +43,8 @@ from backend.orchestrator.state_schema import (
     MCQQuestion,
     PathType,
     ProjectAssignment,
+    RoadmapNode,
+    Subtopic,
     TopicAssessment,
 )
 from backend.rag.retriever import embed_text
@@ -62,7 +66,11 @@ def _parse_json(raw_text: str) -> dict:
 
 
 def _build_prompt(
-    topic: str, course_summary: str | None, timeline: str | None, known_concepts: list[str]
+    topic: str,
+    course_summary: str | None,
+    timeline: str | None,
+    known_concepts: list[str],
+    knowledge_digest: str = "",
 ) -> str:
     summary_clause = f": {course_summary}" if course_summary else ""
     timeline_clause = f" The learner's overall timeline is: {timeline}." if timeline else ""
@@ -74,7 +82,7 @@ def _build_prompt(
         else ""
     )
     return f"""Generate a checkpoint project and a short assessment quiz for a learner \
-studying "{topic}"{summary_clause}.{timeline_clause}{known_clause}
+studying "{topic}"{summary_clause}.{timeline_clause}{known_clause}{knowledge_digest}
 
 Respond with ONLY a JSON object (no markdown fences, no preamble) in this exact shape:
 {{
@@ -100,8 +108,9 @@ def _generate_node_content(
     course_summary: str | None,
     timeline: str | None,
     known_concepts: list[str],
+    knowledge_digest: str = "",
 ) -> NodeContentOutput:
-    prompt = _build_prompt(topic, course_summary, timeline, known_concepts)
+    prompt = _build_prompt(topic, course_summary, timeline, known_concepts, knowledge_digest)
 
     def attempt(p: str) -> NodeContentOutput:
         output = NodeContentOutput.model_validate(_parse_json(client.complete(p, max_tokens=1500)))
@@ -116,6 +125,153 @@ def _generate_node_content(
             f"\n\nYou MUST return exactly {QUESTIONS_PER_NODE} questions. Respond with ONLY valid JSON."
         )
         return attempt(stricter)  # let this raise if it fails again - fail loud
+
+
+class SubtopicOutput(BaseModel):
+    subtopics: list[str]
+
+
+_SUBTOPIC_PROMPT_TEMPLATE = """List the specific sub-concepts a learner needs to cover to \
+learn "{topic}"{summary_clause}{known_clause}
+
+Respond with ONLY a JSON object (no markdown fences, no preamble) in this exact shape:
+{{
+  "subtopics": ["short sub-concept name", "another one"]
+}}
+Write 4-8 short sub-concept names (a few words each, not full sentences), ordered the way a \
+learner would naturally tackle them."""
+
+
+def _generate_subtopics(
+    client: LLMClient,
+    topic: str,
+    course_summary: str | None,
+    known_concepts: list[str],
+) -> list[Subtopic]:
+    summary_clause = f": {course_summary}" if course_summary else ""
+    known_clause = (
+        f" The learner already knows: {', '.join(known_concepts)} - skip those if they overlap."
+        if known_concepts
+        else ""
+    )
+    prompt = _SUBTOPIC_PROMPT_TEMPLATE.format(
+        topic=topic, summary_clause=summary_clause, known_clause=known_clause
+    )
+
+    def attempt(p: str) -> SubtopicOutput:
+        return SubtopicOutput.model_validate(_parse_json(client.complete(p, max_tokens=400)))
+
+    try:
+        output = attempt(prompt)
+    except (json.JSONDecodeError, ValidationError):
+        stricter = prompt + "\n\nRespond with ONLY valid JSON, no commentary."
+        output = attempt(stricter)  # let this raise if it fails again - fail loud
+
+    return [Subtopic(subtopic_id=slugify(name), name=name) for name in output.subtopics]
+
+
+def ensure_subtopics(state: AppState, node: RoadmapNode, llm_client: LLMClient | None = None) -> None:
+    """Lazily fills node.subtopics the first time this node is reached - see
+    main.py's _unlock_next_in_sequence, which calls this right before a node
+    goes LOCKED -> AVAILABLE. A no-op if subtopics are already populated
+    (covers both "already generated" and "regenerate" callers that check
+    first)."""
+    if node.subtopics:
+        return
+    client = llm_client or LLMClient()
+    known_concepts = state.skill_gap_map.known()
+    node.subtopics = _generate_subtopics(client, node.topic, node.course_summary, known_concepts)
+
+
+class ProjectExpansionOutput(BaseModel):
+    detailed_description: str
+
+
+_EXPAND_PROMPT_TEMPLATE = """A learner studying "{topic}" has this project:
+
+Title: {title}
+Short description: {description}
+
+Write a longer, step-by-step version of this same project - concrete steps to actually build \
+it, in order, plus 1-2 sentences on common pitfalls to watch for. Keep it to the same project, \
+don't change scope.{knowledge_digest}
+
+Respond with ONLY a JSON object (no markdown fences, no preamble) in this exact shape:
+{{"detailed_description": "the longer, step-by-step version, plain text with line breaks between steps"}}"""
+
+
+def expand_project_description(
+    state: AppState, node: RoadmapNode, llm_client: LLMClient | None = None
+) -> str:
+    """Generates (and caches onto node.project.detailed_description) a
+    longer, step-by-step version of the node's existing short project
+    description - see main.py's /topic/{node_id}/project/expand. One extra
+    LLM call, only made when the learner actually asks for it."""
+    if node.project is None:
+        raise ValueError(f"Node {node.node_id!r} has no project to expand")
+    if node.project.detailed_description:
+        return node.project.detailed_description
+
+    client = llm_client or LLMClient()
+    knowledge_digest = (
+        format_knowledge_digest(db.get_knowledge_for_user(state.user_id)) if state.user_id else ""
+    )
+    prompt = _EXPAND_PROMPT_TEMPLATE.format(
+        topic=node.topic,
+        title=node.project.title,
+        description=node.project.description,
+        knowledge_digest=knowledge_digest,
+    )
+
+    def attempt(p: str) -> ProjectExpansionOutput:
+        return ProjectExpansionOutput.model_validate(_parse_json(client.complete(p, max_tokens=900)))
+
+    try:
+        output = attempt(prompt)
+    except (json.JSONDecodeError, ValidationError):
+        stricter = prompt + "\n\nRespond with ONLY valid JSON, no commentary."
+        output = attempt(stricter)  # let this raise if it fails again - fail loud
+
+    node.project.detailed_description = output.detailed_description
+    return output.detailed_description
+
+
+def regenerate_node_content(state: AppState, node: RoadmapNode, llm_client: LLMClient | None = None) -> None:
+    """Force-regenerates a single node's project+quiz (and subtopics, if it
+    already had any) - used by main.py's /topic/{id}/regenerate and
+    /roadmap/regenerate. Unlike the lazy-generation path (ensure_subtopics),
+    this always overwrites, using the latest knowledge-base digest so a
+    learner who's added more context gets a more personalized result.
+    Callers are responsible for restricting this to non-COMPLETE nodes -
+    this function doesn't check status, so a graded module isn't silently
+    rewritten by an unguarded call."""
+    client = llm_client or LLMClient()
+    known_concepts = state.skill_gap_map.known()
+    knowledge_digest = (
+        format_knowledge_digest(db.get_knowledge_for_user(state.user_id)) if state.user_id else ""
+    )
+
+    if node.path_type == PathType.PATH_A_DATASET:
+        content = _generate_node_content(
+            client,
+            node.topic,
+            node.course_summary,
+            state.learner_profile.timeline,
+            known_concepts,
+            knowledge_digest,
+        )
+        node.project = ProjectAssignment(
+            title=content.project_title,
+            description=content.project_description,
+            success_criteria=content.success_criteria,
+        )
+        node.assessment = TopicAssessment(questions=content.questions)
+        node.estimated_days = max(1, content.estimated_days)
+    else:
+        run_path_b(state, node_id=node.node_id, llm_client=client, force=True)
+
+    if node.subtopics:
+        node.subtopics = _generate_subtopics(client, node.topic, node.course_summary, known_concepts)
 
 
 def _save_as_template(state: AppState) -> None:
@@ -142,11 +298,19 @@ def run_roadmap_generator(state: AppState, llm_client: LLMClient | None = None) 
     was_reused = bool(dataset_nodes) and all(n.project is not None for n in dataset_nodes)
 
     known_concepts = state.skill_gap_map.known()
+    knowledge_digest = (
+        format_knowledge_digest(db.get_knowledge_for_user(state.user_id)) if state.user_id else ""
+    )
     for node in dataset_nodes:
         if node.project is not None:
             continue  # already populated - this roadmap was reused from a template
         content = _generate_node_content(
-            client, node.topic, node.course_summary, state.learner_profile.timeline, known_concepts
+            client,
+            node.topic,
+            node.course_summary,
+            state.learner_profile.timeline,
+            known_concepts,
+            knowledge_digest,
         )
         node.project = ProjectAssignment(
             title=content.project_title,

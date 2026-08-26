@@ -1,27 +1,49 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { importContext, uploadResume } from "../api";
 import NavBar from "../components/NavBar";
+import { useClipboardCopy } from "../hooks/useClipboardCopy";
 import { getSessionId } from "../session";
 
 // Verbatim from docs/context_export_prompt.md - what the user copies and
 // pastes into another AI tool they've already talked to about their goals.
-const EXPORT_PROMPT = `Based on everything you know about me from our conversations, please summarize:
-1. My career goals or things I've said I want to learn or achieve
-2. My current skills, experience, or background you're aware of
-3. My interests and the kinds of topics I tend to ask about
-4. Any learning preferences you've noticed (pace, style, formats I prefer)
+// Structured under fixed headings on purpose: backend/agents/knowledge_extractor.py
+// parses the pasted reply into categorized facts, and consistent headings make
+// that extraction far more reliable than free-form prose would.
+const EXPORT_PROMPT = `Based on everything you know about me from our conversations, write a \
+summary using exactly these headings. Under each one, list short bullet points (one fact per \
+bullet) - only things we've actually discussed, don't guess or make anything up. If you have \
+nothing for a heading, write "None mentioned".
 
-Please keep it factual and based only on what we've actually discussed - don't
-guess or make anything up. Format it as plain text I can copy elsewhere.`;
+Goals:
+- (what I've said I want to learn or achieve)
+
+Current Skills / Experience:
+- (things I already know or have done, including my rough level)
+
+Interests:
+- (topics or areas I tend to ask about or seem drawn to)
+
+Learning Style & Pace:
+- (how I seem to prefer learning - pace, format, hands-on vs reading, etc.)
+
+Constraints:
+- (time available, deadlines, or anything limiting how I can learn)
+
+Things I Find Difficult or Dislike:
+- (topics I've struggled with or said I don't enjoy)
+
+Format it as plain text I can copy elsewhere, keeping these exact headings.`;
 
 export default function ImportContext() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const isOnboarding = searchParams.get("onboarding") === "1";
   const sessionId = getSessionId();
   const [text, setText] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const { copied, copy } = useClipboardCopy();
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [resumeSaved, setResumeSaved] = useState(false);
@@ -31,12 +53,6 @@ export default function ImportContext() {
   useEffect(() => {
     if (!sessionId) navigate("/login", { replace: true });
   }, [sessionId, navigate]);
-
-  async function handleCopy() {
-    await navigator.clipboard.writeText(EXPORT_PROMPT);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
 
   async function handleSave() {
     if (!sessionId || !text.trim()) return;
@@ -85,6 +101,12 @@ export default function ImportContext() {
           yourself, and it's merged as a hint alongside what you tell us directly, not as a
           fact that overrides you.
         </p>
+        {isOnboarding && (
+          <div className="mt-3 rounded-lg border border-indigo-800 bg-indigo-950/40 px-4 py-3 text-sm text-indigo-200">
+            Optional - do this now if you have context to bring in, or skip it and go straight
+            to chat.
+          </div>
+        )}
 
         <div className="mt-6 rounded-lg border border-slate-800 bg-slate-900 p-4">
           <p className="mb-2 text-xs font-medium text-slate-300">Step 1 — copy this prompt</p>
@@ -92,7 +114,7 @@ export default function ImportContext() {
             {EXPORT_PROMPT}
           </pre>
           <button
-            onClick={handleCopy}
+            onClick={() => copy(EXPORT_PROMPT)}
             className="mt-2 rounded-md bg-slate-700 px-3 py-1 text-xs font-medium transition hover:bg-slate-600"
           >
             {copied ? "Copied!" : "Copy to clipboard"}
@@ -151,6 +173,15 @@ export default function ImportContext() {
           )}
           {resumeError && <p className="mt-2 text-sm text-red-400">{resumeError}</p>}
         </div>
+
+        {isOnboarding && (
+          <button
+            onClick={() => navigate("/chat")}
+            className="mt-6 w-full rounded-full bg-indigo-500 px-6 py-3 text-sm font-semibold transition hover:bg-indigo-400"
+          >
+            {saved || resumeSaved ? "Continue to Chat" : "Skip for now - Continue to Chat"}
+          </button>
+        )}
       </div>
     </div>
   );

@@ -201,6 +201,7 @@ def run_path_b(
     node_id: str | None = None,
     llm_client: LLMClient | None = None,
     search_client: TavilyClient | None = None,
+    force: bool = False,
 ) -> AppState:
     client = llm_client or LLMClient()
     search = search_client or _search_client()
@@ -212,9 +213,17 @@ def run_path_b(
         if node is None:
             raise ValueError(f"No node {node_id!r} in this roadmap")
 
-        if node.project is None:
+        if node.project is None or force:
+            # force=True (roadmap_generator.py's regenerate_node_content) is
+            # the third case alongside the two above: an explicit learner
+            # request to rewrite project/quiz too, not just refresh
+            # resources - same fill path as a brand-new stub.
             _fill_node(state, node, client, search)
-            state.log(AgentName.PATH_B, "node_filled_from_web", detail=node.topic)
+            state.log(
+                AgentName.PATH_B,
+                "node_regenerated" if force else "node_filled_from_web",
+                detail=node.topic,
+            )
         else:
             _supplement_node(state, node, client, search)
             state.log(AgentName.PATH_B, "node_resources_refreshed", detail=node.topic)

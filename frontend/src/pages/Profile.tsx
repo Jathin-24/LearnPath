@@ -1,10 +1,27 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { getState, restartGoal, updateProfile, uploadResume } from "../api";
+import {
+  deleteKnowledgeEntry,
+  getKnowledge,
+  getState,
+  restartGoal,
+  updateProfile,
+  uploadResume,
+} from "../api";
 import NavBar from "../components/NavBar";
 import PageSkeleton from "../components/Skeleton";
 import { getSessionId } from "../session";
-import type { AppState, OccupationStatus } from "../types";
+import type { AppState, KnowledgeEntry, OccupationStatus } from "../types";
+
+const CATEGORY_LABEL: Record<string, string> = {
+  goal: "Goals",
+  skill: "Skills",
+  interest: "Interests",
+  learning_style: "Learning Style",
+  constraint: "Constraints",
+  personality: "Personality",
+  other: "Other",
+};
 
 const STATUS_COLOR: Record<string, string> = {
   known: "text-green-400",
@@ -70,6 +87,8 @@ export default function Profile() {
 
   const [restarting, setRestarting] = useState(false);
 
+  const [knowledge, setKnowledge] = useState<KnowledgeEntry[]>([]);
+
   useEffect(() => {
     if (!sessionId) {
       navigate("/login", { replace: true });
@@ -91,7 +110,24 @@ export default function Profile() {
       setKnownSkills(toCommaList(p.stated_known_skills));
       setPriorHistory(toCommaList(p.prior_learning_history));
     });
+    getKnowledge(sessionId)
+      .then(({ entries }) => setKnowledge(entries))
+      .catch(() => setKnowledge([]));
   }, [sessionId, navigate]);
+
+  async function handleDeleteKnowledge(entryId: string) {
+    if (!sessionId) return;
+    setKnowledge((prev) => prev.filter((e) => e.id !== entryId));
+    try {
+      await deleteKnowledgeEntry(sessionId, entryId);
+    } catch {
+      // Best-effort - re-fetch to recover from a failed delete rather than
+      // leaving the UI silently out of sync with the database.
+      getKnowledge(sessionId)
+        .then(({ entries }) => setKnowledge(entries))
+        .catch(() => {});
+    }
+  }
 
   const requiredFieldsFilled = !!(name.trim() && email.trim() && age.trim() && gender.trim() && occupation);
 
@@ -118,7 +154,9 @@ export default function Profile() {
       setState(state);
       setSaved(true);
       if (continueAfter) {
-        navigate("/chat");
+        // New users see the "import context" step once, right after the
+        // required-fields gate, before landing in chat.
+        navigate("/import?onboarding=1");
       }
     } catch {
       setError("Couldn't save your profile - try again.");
@@ -295,6 +333,46 @@ export default function Profile() {
 
         {!isRequired && (
           <>
+            {knowledge.length > 0 && (
+              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
+                <h2 className="mb-1 text-sm font-semibold text-slate-300">Key Points</h2>
+                <p className="mb-3 text-xs text-slate-500">
+                  Extracted from what you've imported or uploaded. Remove anything that's
+                  wrong - it feeds directly into how your roadmap is shaped.
+                </p>
+                <div className="space-y-3">
+                  {Object.entries(
+                    knowledge.reduce<Record<string, KnowledgeEntry[]>>((acc, entry) => {
+                      (acc[entry.category] ??= []).push(entry);
+                      return acc;
+                    }, {}),
+                  ).map(([category, entries]) => (
+                    <div key={category}>
+                      <h3 className="mb-1 text-xs font-medium text-slate-400">
+                        {CATEGORY_LABEL[category] ?? category}
+                      </h3>
+                      <ul className="space-y-1">
+                        {entries.map((entry) => (
+                          <li
+                            key={entry.id}
+                            className="flex items-start justify-between gap-3 text-sm text-slate-200"
+                          >
+                            <span>{entry.content}</span>
+                            <button
+                              onClick={() => handleDeleteKnowledge(entry.id)}
+                              className="shrink-0 text-xs text-slate-500 hover:text-red-400"
+                            >
+                              Remove
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
               <h2 className="mb-2 text-sm font-semibold text-slate-300">Resume</h2>
               <p className="mb-3 text-xs text-slate-500">

@@ -45,6 +45,15 @@ CREATE TABLE IF NOT EXISTS roadmap_templates (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     usage_count INT NOT NULL DEFAULT 0
 );
+
+CREATE TABLE IF NOT EXISTS user_knowledge (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(user_id),
+    category TEXT NOT NULL,
+    content TEXT NOT NULL,
+    source TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 """
 
 
@@ -157,4 +166,40 @@ def save_roadmap_template(goal_text: str, goal_embedding: list[float], nodes_jso
             "INSERT INTO roadmap_templates (template_id, goal_text, goal_embedding, nodes_json) "
             "VALUES (%s, %s, %s, %s)",
             (template_id, goal_text, json.dumps(goal_embedding), json.dumps(nodes_json)),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Per-user knowledge base (structured facts extracted from imported context /
+# resumes - see backend/agents/knowledge_extractor.py. Keyed by user_id, not
+# session_id, so it survives /goal/restart's per-session profile reset.)
+# ---------------------------------------------------------------------------
+
+def add_knowledge_entries(user_id: str, entries: list[dict]) -> None:
+    """entries: list of {"category": str, "content": str, "source": str}."""
+    if not entries:
+        return
+    with get_connection() as conn:
+        for entry in entries:
+            conn.execute(
+                "INSERT INTO user_knowledge (id, user_id, category, content, source) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                (str(uuid.uuid4()), user_id, entry["category"], entry["content"], entry["source"]),
+            )
+
+
+def get_knowledge_for_user(user_id: str) -> list[dict]:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT id, category, content, source, created_at FROM user_knowledge "
+            "WHERE user_id = %s ORDER BY created_at",
+            (user_id,),
+        ).fetchall()
+
+
+def delete_knowledge_entry(entry_id: str, user_id: str) -> None:
+    """Scoped to user_id too, so one user can't delete another's entry by guessing an id."""
+    with get_connection() as conn:
+        conn.execute(
+            "DELETE FROM user_knowledge WHERE id = %s AND user_id = %s", (entry_id, user_id)
         )

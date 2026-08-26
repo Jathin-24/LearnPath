@@ -16,6 +16,8 @@ import json
 
 from pydantic import BaseModel, Field, ValidationError
 
+from backend.agents.knowledge_extractor import format_knowledge_digest
+from backend.common import db
 from backend.common.llm_client import LLMClient
 from backend.orchestrator.state_schema import AgentName, AppState, ChatTurn, ConversationStage
 
@@ -78,10 +80,14 @@ def _build_prompt(state: AppState) -> str:
             f"a fact - merge with what the learner tells you directly):\n{profile.resume_raw}\n"
         )
 
+    knowledge_digest = ""
+    if state.user_id:
+        knowledge_digest = format_knowledge_digest(db.get_knowledge_for_user(state.user_id))
+
     return f"""{_SYSTEM_INSTRUCTIONS}
 
 Known so far: {json.dumps(known_so_far)}
-{imported_hint}{resume_hint}
+{imported_hint}{resume_hint}{knowledge_digest}
 Recent conversation:
 {recent_turns}
 

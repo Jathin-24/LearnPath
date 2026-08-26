@@ -1,7 +1,7 @@
 // Typed wrapper around every backend/api/main.py route the frontend uses.
 // One function per route - see docs/api_contract.md for the canonical spec.
 
-import type { AnalyticsResponse, AppState, DashboardResponse, QuestionResult } from "./types";
+import type { AnalyticsResponse, AppState, DashboardResponse, KnowledgeEntry, QuestionResult } from "./types";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
@@ -65,6 +65,17 @@ export function importContext(
   });
 }
 
+export function getKnowledge(sessionId: string): Promise<{ entries: KnowledgeEntry[] }> {
+  return request(`/knowledge/${sessionId}`);
+}
+
+export function deleteKnowledgeEntry(sessionId: string, entryId: string): Promise<{ deleted: string }> {
+  return request(`/knowledge/${entryId}`, {
+    method: "DELETE",
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+}
+
 export function restartGoal(sessionId: string): Promise<{ state: AppState }> {
   return request("/goal/restart", {
     method: "POST",
@@ -97,8 +108,66 @@ export function skipRoadmapNode(sessionId: string, nodeId: string): Promise<{ st
   });
 }
 
+export function addRoadmapNode(
+  sessionId: string,
+  topic: string,
+  keyConcepts: string[] = [],
+): Promise<{ state: AppState }> {
+  return request("/roadmap/node/add", {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId, topic, key_concepts: keyConcepts }),
+  });
+}
+
+export function editRoadmapNode(
+  sessionId: string,
+  nodeId: string,
+  update: { topic?: string; key_concepts?: string[] },
+): Promise<{ state: AppState }> {
+  return request(`/roadmap/node/${nodeId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ session_id: sessionId, ...update }),
+  });
+}
+
 export function refreshWebResources(sessionId: string, nodeId: string): Promise<{ state: AppState }> {
   return request(`/topic/${nodeId}/refresh-web`, {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+}
+
+export function toggleSubtopic(
+  sessionId: string,
+  nodeId: string,
+  subtopicId: string,
+  checked: boolean,
+): Promise<{ state: AppState }> {
+  return request(`/topic/${nodeId}/subtopic/${subtopicId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ session_id: sessionId, checked }),
+  });
+}
+
+export function expandProject(
+  sessionId: string,
+  nodeId: string,
+): Promise<{ detailed_description: string }> {
+  return request(`/topic/${nodeId}/project/expand`, {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+}
+
+export function regenerateTopic(sessionId: string, nodeId: string): Promise<{ state: AppState }> {
+  return request(`/topic/${nodeId}/regenerate`, {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+}
+
+export function regenerateRoadmap(sessionId: string): Promise<{ state: AppState }> {
+  return request("/roadmap/regenerate", {
     method: "POST",
     body: JSON.stringify({ session_id: sessionId }),
   });

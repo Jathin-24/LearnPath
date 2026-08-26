@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { getDashboard, getState } from "../api";
+import { addRoadmapNode, getDashboard, getState, regenerateRoadmap } from "../api";
 import NavBar from "../components/NavBar";
 import RoadmapGraph from "../components/RoadmapGraph";
 import RoadmapList from "../components/RoadmapList";
@@ -15,6 +15,10 @@ export default function Dashboard() {
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [state, setState] = useState<AppState | null>(null);
   const [view, setView] = useState<"graph" | "list">("graph");
+  const [regenerating, setRegenerating] = useState(false);
+  const [addingTopic, setAddingTopic] = useState(false);
+  const [newTopic, setNewTopic] = useState("");
+  const [savingTopic, setSavingTopic] = useState(false);
 
   useEffect(() => {
     if (!sessionId) {
@@ -31,6 +35,40 @@ export default function Dashboard() {
       },
     );
   }, [sessionId, navigate]);
+
+  async function handleRegenerateRoadmap() {
+    if (!sessionId) return;
+    if (
+      !window.confirm(
+        "Regenerate every not-yet-completed topic's project and quiz? This replaces their current content.",
+      )
+    )
+      return;
+    setRegenerating(true);
+    try {
+      const { state: newState } = await regenerateRoadmap(sessionId);
+      setState(newState);
+    } catch {
+      // no-op - the button staying put communicates the failure well enough here
+    } finally {
+      setRegenerating(false);
+    }
+  }
+
+  async function handleAddTopic() {
+    if (!sessionId || !newTopic.trim()) return;
+    setSavingTopic(true);
+    try {
+      const { state: newState } = await addRoadmapNode(sessionId, newTopic.trim());
+      setState(newState);
+      setNewTopic("");
+      setAddingTopic(false);
+    } catch {
+      // no-op - the form staying open communicates the failure well enough here
+    } finally {
+      setSavingTopic(false);
+    }
+  }
 
   if (!sessionId || !dashboard || !state) {
     return (
@@ -151,27 +189,61 @@ export default function Dashboard() {
 
         {state.roadmap && (
           <div>
-            <div className="mb-2 flex items-center justify-between">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-semibold text-slate-300">Your Roadmap</h2>
-              <div className="flex shrink-0 gap-1 rounded-full bg-slate-900 p-1">
+              <div className="flex shrink-0 items-center gap-2">
                 <button
-                  onClick={() => setView("graph")}
-                  className={`rounded-full px-3 py-1 text-xs font-medium ${
-                    view === "graph" ? "bg-indigo-500 text-white" : "text-slate-400"
-                  }`}
+                  onClick={() => setAddingTopic((v) => !v)}
+                  className="rounded-md bg-slate-800 px-3 py-1 text-xs font-medium text-slate-300 transition hover:bg-slate-700"
                 >
-                  Graph
+                  + Add topic
                 </button>
                 <button
-                  onClick={() => setView("list")}
-                  className={`rounded-full px-3 py-1 text-xs font-medium ${
-                    view === "list" ? "bg-indigo-500 text-white" : "text-slate-400"
-                  }`}
+                  onClick={handleRegenerateRoadmap}
+                  disabled={regenerating}
+                  className="rounded-md bg-slate-800 px-3 py-1 text-xs font-medium text-slate-300 transition hover:bg-slate-700 disabled:opacity-50"
                 >
-                  List
+                  {regenerating ? "Regenerating..." : "♻ Regenerate roadmap"}
                 </button>
+                <div className="flex gap-1 rounded-full bg-slate-900 p-1">
+                  <button
+                    onClick={() => setView("graph")}
+                    className={`rounded-full px-3 py-1 text-xs font-medium ${
+                      view === "graph" ? "bg-indigo-500 text-white" : "text-slate-400"
+                    }`}
+                  >
+                    Graph
+                  </button>
+                  <button
+                    onClick={() => setView("list")}
+                    className={`rounded-full px-3 py-1 text-xs font-medium ${
+                      view === "list" ? "bg-indigo-500 text-white" : "text-slate-400"
+                    }`}
+                  >
+                    List
+                  </button>
+                </div>
               </div>
             </div>
+            {addingTopic && (
+              <div className="mb-3 flex gap-2 rounded-xl border border-slate-800 bg-slate-900 p-3">
+                <input
+                  autoFocus
+                  value={newTopic}
+                  onChange={(e) => setNewTopic(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleAddTopic()}
+                  placeholder="e.g. GraphQL"
+                  className="flex-1 rounded-md bg-slate-950 p-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <button
+                  onClick={handleAddTopic}
+                  disabled={savingTopic || !newTopic.trim()}
+                  className="rounded-md bg-indigo-500 px-4 py-2 text-xs font-semibold transition hover:bg-indigo-400 disabled:opacity-50"
+                >
+                  {savingTopic ? "Adding..." : "Add"}
+                </button>
+              </div>
+            )}
             {view === "graph" ? (
               <RoadmapGraph nodes={state.roadmap.nodes} colorByStatus />
             ) : (
