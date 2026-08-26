@@ -6,18 +6,19 @@ retrieve(query, k) is the only function the Path-A agent should call.
 """
 
 import json
+import pickle
 from functools import lru_cache
 
 import faiss
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
-from backend.rag.build_index import DATA_PATH, INDEX_PATH, METADATA_PATH, MODEL_NAME
+from backend.rag.build_index import DATA_PATH, INDEX_PATH, METADATA_PATH, VECTORIZER_PATH
 
 
 @lru_cache
-def _load_model() -> SentenceTransformer:
-    return SentenceTransformer(MODEL_NAME)
+def _load_vectorizer():
+    with open(VECTORIZER_PATH, "rb") as f:
+        return pickle.load(f)
 
 
 @lru_cache
@@ -48,8 +49,12 @@ def embed_text(text: str) -> list[float]:
     """Raw normalized embedding for a piece of text - used by Path-A to
     compare goals for the roadmap_templates reuse cache (backend/common/db.py),
     not just course similarity search."""
-    model = _load_model()
-    vec = model.encode([text], normalize_embeddings=True)
+    vectorizer = _load_vectorizer()
+    vec = vectorizer.transform([text]).toarray().astype("float32")
+    # L2-normalize for cosine similarity via inner product
+    norms = np.linalg.norm(vec, axis=1, keepdims=True)
+    norms[norms == 0] = 1
+    vec = vec / norms
     return vec[0].tolist()
 
 
@@ -57,11 +62,13 @@ def retrieve(query: str, k: int = 5) -> list[dict]:
     """Returns up to k courses most relevant to query, ranked by cosine
     similarity, each as {"course_name": str, "score": float, **enriched fields}."""
     index, course_names = _load_index()
-    model = _load_model()
+    vectorizer = _load_vectorizer()
     courses = _load_courses()
 
-    query_vec = model.encode([query], normalize_embeddings=True)
-    query_vec = np.asarray(query_vec, dtype="float32")
+    query_vec = vectorizer.transform([query]).toarray().astype("float32")
+    norms = np.linalg.norm(query_vec, axis=1, keepdims=True)
+    norms[norms == 0] = 1
+    query_vec = query_vec / norms
 
     scores, indices = index.search(query_vec, min(k, len(course_names)))
 
