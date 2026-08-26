@@ -4,10 +4,12 @@ import {
   deleteKnowledgeEntry,
   getKnowledge,
   getState,
+  resumeFileUrl,
   restartGoal,
   updateProfile,
   uploadResume,
 } from "../api";
+import BuildingIndicator from "../components/BuildingIndicator";
 import NavBar from "../components/NavBar";
 import PageSkeleton from "../components/Skeleton";
 import { getSessionId } from "../session";
@@ -75,6 +77,8 @@ export default function Profile() {
   const [interests, setInterests] = useState("");
   const [knownSkills, setKnownSkills] = useState("");
   const [priorHistory, setPriorHistory] = useState("");
+  const [hobbies, setHobbies] = useState("");
+  const [certifications, setCertifications] = useState("");
 
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -109,6 +113,8 @@ export default function Profile() {
       setInterests(toCommaList(p.interests));
       setKnownSkills(toCommaList(p.stated_known_skills));
       setPriorHistory(toCommaList(p.prior_learning_history));
+      setHobbies(toCommaList(p.hobbies));
+      setCertifications(toCommaList(p.certifications));
     });
     getKnowledge(sessionId)
       .then(({ entries }) => setKnowledge(entries))
@@ -150,6 +156,8 @@ export default function Profile() {
         interests: fromCommaList(interests),
         stated_known_skills: fromCommaList(knownSkills),
         prior_learning_history: fromCommaList(priorHistory),
+        hobbies: fromCommaList(hobbies),
+        certifications: fromCommaList(certifications),
       });
       setState(state);
       setSaved(true);
@@ -173,7 +181,23 @@ export default function Profile() {
     setResumeError(null);
     setResumeSaved(false);
     try {
-      await uploadResume(sessionId, file);
+      const { state: newState } = await uploadResume(sessionId, file);
+      setState(newState);
+      // Auto-fill the form from whatever the resume extraction newly
+      // populated - fills blanks only, so anything already typed in stays.
+      const p = newState.learner_profile;
+      setName((prev) => prev || p.name || "");
+      setEmail((prev) => prev || p.email || "");
+      setAge((prev) => prev || (p.age ? String(p.age) : ""));
+      setGender((prev) => prev || p.gender || "");
+      setOccupation((prev) => prev || p.occupation_status || "");
+      setProfessionalRole((prev) => prev || p.professional_role || "");
+      setGoal((prev) => prev || p.goal || "");
+      setInterests(toCommaList(p.interests));
+      setKnownSkills(toCommaList(p.stated_known_skills));
+      setPriorHistory(toCommaList(p.prior_learning_history));
+      setHobbies(toCommaList(p.hobbies));
+      setCertifications(toCommaList(p.certifications));
       setResumeSaved(true);
     } catch {
       setResumeError("Couldn't read that PDF - try a different file.");
@@ -309,6 +333,16 @@ export default function Profile() {
               className={inputClass}
             />
           </Field>
+          <Field label="Hobbies (comma-separated)">
+            <input value={hobbies} onChange={(e) => setHobbies(e.target.value)} className={inputClass} />
+          </Field>
+          <Field label="Certifications (comma-separated)">
+            <input
+              value={certifications}
+              onChange={(e) => setCertifications(e.target.value)}
+              className={inputClass}
+            />
+          </Field>
         </div>
 
         {isRequired ? (
@@ -376,9 +410,30 @@ export default function Profile() {
             <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
               <h2 className="mb-2 text-sm font-semibold text-slate-300">Resume</h2>
               <p className="mb-3 text-xs text-slate-500">
-                PDF only. We'll pull the text out and use it as a hint when shaping your
-                roadmap.
+                PDF only. We'll pull skills, certifications, hobbies, and other details out to
+                auto-fill your profile below, and use it to personalize your roadmap and chats.
               </p>
+              {state.learner_profile.resume_filename && (
+                <div className="mb-3 flex items-center justify-between rounded-md bg-slate-950 px-3 py-2 text-xs">
+                  <span className="truncate text-slate-300">
+                    📄 {state.learner_profile.resume_filename}
+                    {state.learner_profile.resume_uploaded_at && (
+                      <span className="text-slate-500">
+                        {" "}
+                        · uploaded {new Date(state.learner_profile.resume_uploaded_at).toLocaleDateString()}
+                      </span>
+                    )}
+                  </span>
+                  <a
+                    href={resumeFileUrl(sessionId)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="shrink-0 text-indigo-400 hover:underline"
+                  >
+                    View PDF
+                  </a>
+                </div>
+              )}
               <input
                 ref={fileInputRef}
                 type="file"
@@ -391,9 +446,16 @@ export default function Profile() {
                 disabled={uploading}
                 className="rounded-md bg-slate-700 px-3 py-1 text-xs font-medium transition hover:bg-slate-600 disabled:opacity-50"
               >
-                {uploading ? "Reading resume..." : "Choose PDF"}
+                {uploading
+                  ? "Reading resume..."
+                  : state.learner_profile.resume_filename
+                    ? "Upload a new PDF"
+                    : "Choose PDF"}
               </button>
-              {resumeSaved && <p className="mt-2 text-sm text-green-400">Resume read successfully.</p>}
+              {uploading && <BuildingIndicator label="Reading your resume and building your profile..." className="mt-3" />}
+              {resumeSaved && !uploading && (
+                <p className="mt-2 text-sm text-green-400">Resume read successfully - fields below were auto-filled.</p>
+              )}
               {resumeError && <p className="mt-2 text-sm text-red-400">{resumeError}</p>}
             </div>
 

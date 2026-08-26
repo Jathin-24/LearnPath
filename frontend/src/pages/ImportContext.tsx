@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { importContext, uploadResume } from "../api";
+import BuildingIndicator from "../components/BuildingIndicator";
 import NavBar from "../components/NavBar";
 import { useClipboardCopy } from "../hooks/useClipboardCopy";
 import { getSessionId } from "../session";
@@ -148,8 +149,8 @@ export default function ImportContext() {
         <div className="mt-6 rounded-lg border border-slate-800 bg-slate-900 p-4">
           <p className="mb-2 text-xs font-medium text-slate-300">Or upload your resume</p>
           <p className="mb-3 text-xs text-slate-500">
-            PDF only, for now. We'll pull the text out and use it the same way - a hint for
-            your Profiler, never treated as fact on its own.
+            PDF only, for now. We'll pull skills, certifications, hobbies, and personal details
+            out to auto-fill your profile too - see the Profile page after this.
           </p>
           <input
             ref={fileInputRef}
@@ -165,6 +166,7 @@ export default function ImportContext() {
           >
             {uploading ? "Reading resume..." : "Choose PDF"}
           </button>
+          {uploading && <BuildingIndicator label="Reading your resume and building your profile..." className="mt-3" />}
           {resumeSaved && (
             <p className="mt-2 text-sm text-green-400">
               Resume read successfully - this'll help shape your roadmap next time it's

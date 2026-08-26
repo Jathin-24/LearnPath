@@ -24,17 +24,20 @@ from datetime import datetime, timedelta, timezone
 import bcrypt
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from pydantic import BaseModel
 from pypdf import PdfReader
 
 from backend.agents.assessment import grade_pending_quiz, submit_checklist_concepts
 from backend.agents.explainer import explain_node as run_explainer
-from backend.agents.knowledge_extractor import extract_knowledge
+from backend.agents.knowledge_extractor import extract_knowledge, extract_resume_profile
 from backend.agents.path_a import run_path_a
 from backend.agents.path_b import run_path_b
 from backend.agents.roadmap_generator import (
     ensure_subtopics,
     expand_project_description,
+    generate_final_content,
+    generate_subtopic_quiz,
     regenerate_node_content,
     run_roadmap_generator,
 )
@@ -54,6 +57,8 @@ from backend.orchestrator.state_schema import (
     PathType,
     RoadmapNode,
     SkillGapMap,
+    Subtopic,
+    SubtopicStatus,
 )
 
 
@@ -69,7 +74,12 @@ app = FastAPI(title="Learning Path Recommender API", lifespan=lifespan)
 # deployed frontend origin before shipping.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -371,6 +381,50 @@ def restart_goal(payload: SessionIdRequest):
     return {"state": state}
 
 
+def _merge_resume_profile_fields(state: AppState, text: str) -> None:
+    """Auto-fills LearnerProfile fields straight from the resume, on top of
+    the freeform knowledge-base entries _extract_knowledge_best_effort
+    already writes. Only fills blanks / appends new list items - never
+    overwrites something the learner already told us directly (a resume is
+    a hint, same treatment as resume_raw itself). Best-effort: a parse
+    failure here must not break the upload that already succeeded."""
+    profile = state.learner_profile
+    try:
+        extracted = extract_resume_profile(text)
+    except Exception as exc:
+        state.log(AgentName.PROFILER, "resume_profile_extraction_failed", detail=str(exc))
+        return
+
+    if not profile.name and extracted.name:
+        profile.name = extracted.name
+    if not profile.email and extracted.email:
+        profile.email = extracted.email
+    if not profile.age and extracted.age:
+        profile.age = extracted.age
+    if not profile.gender and extracted.gender:
+        profile.gender = extracted.gender
+    if not profile.occupation_status and extracted.occupation_status in (
+        "student",
+        "working_professional",
+    ):
+        profile.occupation_status = extracted.occupation_status
+    if not profile.professional_role and extracted.professional_role:
+        profile.professional_role = extracted.professional_role
+    if not profile.goal and extracted.goal:
+        profile.goal = extracted.goal
+    for lst_attr, values in (
+        ("interests", extracted.interests),
+        ("stated_known_skills", extracted.skills),
+        ("hobbies", extracted.hobbies),
+        ("certifications", extracted.certifications),
+        ("prior_learning_history", extracted.prior_learning_history),
+    ):
+        current = getattr(profile, lst_attr)
+        for item in values:
+            if item not in current:
+                current.append(item)
+
+
 @app.post("/profile/resume")
 async def upload_resume(session_id: str = Form(...), file: UploadFile = File(...)):
     state = _load_or_404(session_id)
@@ -388,9 +442,32 @@ async def upload_resume(session_id: str = Form(...), file: UploadFile = File(...
         raise HTTPException(status_code=400, detail="No extractable text found in that PDF")
 
     state.learner_profile.resume_raw = text
+    state.learner_profile.resume_filename = file.filename
+    state.learner_profile.resume_uploaded_at = datetime.now(timezone.utc)
+    # Feeds every future chat/roadmap-generation prompt via
+    # profiler.py/roadmap_generator.py's resume_raw/knowledge_digest
+    # injection - already wired, this upload is what populates it.
     _extract_knowledge_best_effort(state, text, source="resume")
+    _merge_resume_profile_fields(state, text)
+    if state.user_id:
+        db.save_resume_file(state.user_id, file.filename or "resume.pdf", file.content_type or "application/pdf", raw_bytes)
     db.save_state(state)
     return {"state": state}
+
+
+@app.get("/profile/resume/file/{session_id}")
+def get_resume_file(session_id: str):
+    state = _load_or_404(session_id)
+    if not state.user_id:
+        raise HTTPException(status_code=404, detail="No resume on file for this session")
+    row = db.get_resume_file(state.user_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="No resume on file for this session")
+    return Response(
+        content=bytes(row["data"]),
+        media_type=row["content_type"] or "application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{row["filename"]}"'},
+    )
 
 
 @app.get("/state/{session_id}")
@@ -565,8 +642,17 @@ def expand_project(node_id: str, payload: SessionIdRequest):
     return {"detailed_description": detailed}
 
 
+class RegenerateRequest(BaseModel):
+    session_id: str
+    # Optional one-off "what do you want to add/change" text - merged into
+    # state.learner_profile.roadmap_instructions (persistent) before
+    # regenerating, so later lazy generation (other topics, retries) keeps
+    # honoring it too, not just this call.
+    instructions: str | None = None
+
+
 @app.post("/topic/{node_id}/regenerate")
-def regenerate_topic(node_id: str, payload: SessionIdRequest):
+def regenerate_topic(node_id: str, payload: RegenerateRequest):
     """Force-regenerates one module's project/quiz (and subtopics, if it
     already had any), picking up any profile/knowledge-base changes made
     since it was first generated. Refused for COMPLETE nodes - never
@@ -580,23 +666,56 @@ def regenerate_topic(node_id: str, payload: SessionIdRequest):
     if node.status == NodeStatus.COMPLETE:
         raise HTTPException(status_code=400, detail="Can't regenerate a completed topic")
 
+    if payload.instructions is not None:
+        state.learner_profile.roadmap_instructions = payload.instructions
     regenerate_node_content(state, node, LLMClient())
     db.save_state(state)
     return {"state": state}
 
 
 @app.post("/roadmap/regenerate")
-def regenerate_roadmap(payload: SessionIdRequest):
+def regenerate_roadmap(payload: RegenerateRequest):
     """Same as /topic/{id}/regenerate, applied to every not-yet-completed
     node in the roadmap."""
     state = _load_or_404(payload.session_id)
     if state.roadmap is None:
         raise HTTPException(status_code=400, detail="No roadmap for this session")
 
+    if payload.instructions is not None:
+        state.learner_profile.roadmap_instructions = payload.instructions
     client = LLMClient()
     for node in state.roadmap.nodes:
         if node.status != NodeStatus.COMPLETE:
             regenerate_node_content(state, node, client)
+
+    db.save_state(state)
+    return {"state": state}
+
+
+@app.post("/roadmap/modify")
+def modify_roadmap(payload: RegenerateRequest):
+    """"Modify with AI" on the (not-yet-confirmed) roadmap review screen -
+    unlike /roadmap/regenerate above, this re-runs Path-A/Path-B's course
+    selection itself (not just per-node content), so it can change WHICH
+    topics appear, not just their wording. Only safe pre-confirm, while
+    every node is still LOCKED and nothing has been graded yet."""
+    state = _load_or_404(payload.session_id)
+    if state.stage != ConversationStage.ROADMAP_REVIEW:
+        raise HTTPException(
+            status_code=400, detail="Roadmap can only be modified before it's confirmed"
+        )
+    if not (payload.instructions or "").strip():
+        raise HTTPException(status_code=400, detail="Tell us what you'd like to change")
+
+    state.learner_profile.roadmap_instructions = payload.instructions
+    client = LLMClient()
+    try:
+        state = run_path_a(state, client, use_template_cache=False)
+        state = run_roadmap_generator(state, client)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail="Couldn't rebuild your roadmap - please try again."
+        ) from exc
 
     db.save_state(state)
     return {"state": state}
@@ -666,7 +785,22 @@ def _unlock_next_in_sequence(state: AppState, llm_client: LLMClient | None = Non
         if node.status == NodeStatus.LOCKED:
             ensure_subtopics(state, node, llm_client)
             node.status = NodeStatus.AVAILABLE
+            _maybe_generate_final_content(state, node, llm_client)
         break  # first non-complete, completable node found, unlocked or not - stop
+
+
+def _maybe_generate_final_content(state: AppState, node: RoadmapNode, llm_client: LLMClient | None = None) -> None:
+    """Triggers roadmap_generator.generate_final_content once every one of
+    node's subtopics is PASSED/SKIPPED (vacuously true if there are none) -
+    called right after a node is unlocked (the zero-subtopic edge case) and
+    after each subtopic quiz submit/skip. generate_final_content is itself
+    idempotent (no-op if node.project is already set), so calling this
+    unconditionally from multiple places is safe."""
+    if node.project is not None:
+        return
+    if not all(s.status in (SubtopicStatus.PASSED, SubtopicStatus.SKIPPED) for s in node.subtopics):
+        return
+    generate_final_content(state, node, llm_client or LLMClient())
 
 
 @app.post("/topic/{node_id}/assessment/submit")
@@ -683,6 +817,10 @@ def submit_assessment(node_id: str, payload: AssessmentSubmitRequest):
         raise HTTPException(
             status_code=400,
             detail=f"Node {node_id!r} isn't the current topic - complete topics one at a time",
+        )
+    if not all(s.status in (SubtopicStatus.PASSED, SubtopicStatus.SKIPPED) for s in node.subtopics):
+        raise HTTPException(
+            status_code=400, detail="Finish every sub-concept before taking the final quiz"
         )
 
     questions = node.assessment.questions
@@ -746,16 +884,7 @@ def update_topic_notes(node_id: str, payload: TopicNotesRequest):
     return {"notes": node.notes}
 
 
-class SubtopicToggleRequest(BaseModel):
-    session_id: str
-    checked: bool
-
-
-@app.patch("/topic/{node_id}/subtopic/{subtopic_id}")
-def toggle_subtopic(node_id: str, subtopic_id: str, payload: SubtopicToggleRequest):
-    """Informational progress tracker only - never affects NodeStatus/
-    completion, which stays gated by the quiz (submit_assessment)."""
-    state = _load_or_404(payload.session_id)
+def _get_node_and_subtopic(state: AppState, node_id: str, subtopic_id: str) -> tuple[RoadmapNode, Subtopic]:
     if state.roadmap is None:
         raise HTTPException(status_code=400, detail="No roadmap for this session")
     node = state.roadmap.get_node(node_id)
@@ -764,8 +893,87 @@ def toggle_subtopic(node_id: str, subtopic_id: str, payload: SubtopicToggleReque
     subtopic = next((s for s in node.subtopics if s.subtopic_id == subtopic_id), None)
     if subtopic is None:
         raise HTTPException(status_code=404, detail=f"No subtopic {subtopic_id!r} on that node")
+    return node, subtopic
 
-    subtopic.checked = payload.checked
+
+def _unlock_next_subtopic(node: RoadmapNode) -> None:
+    next_locked = next((s for s in node.subtopics if s.status == SubtopicStatus.LOCKED), None)
+    if next_locked is not None:
+        next_locked.status = SubtopicStatus.AVAILABLE
+
+
+@app.post("/topic/{node_id}/subtopic/{subtopic_id}/quiz/generate")
+def generate_subtopic_quiz_route(node_id: str, subtopic_id: str, payload: SessionIdRequest):
+    """"Done Learning" - generates (or returns the already-generated) quiz
+    for one sub-concept. Only the currently-available subtopic can start a
+    quiz, matching the strictly-sequential order the roadmap's own topics
+    already use."""
+    state = _load_or_404(payload.session_id)
+    node, subtopic = _get_node_and_subtopic(state, node_id, subtopic_id)
+    if subtopic.status != SubtopicStatus.AVAILABLE:
+        raise HTTPException(
+            status_code=400, detail="This sub-concept isn't available yet - finish earlier ones first"
+        )
+
+    try:
+        generate_subtopic_quiz(state, node, subtopic, LLMClient())
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502, detail="Couldn't put that quiz together - please try again."
+        ) from exc
+
+    db.save_state(state)
+    return {"state": state}
+
+
+class SubtopicQuizSubmitRequest(BaseModel):
+    session_id: str
+    answers: list[str]
+
+
+@app.post("/topic/{node_id}/subtopic/{subtopic_id}/quiz/submit")
+def submit_subtopic_quiz(node_id: str, subtopic_id: str, payload: SubtopicQuizSubmitRequest):
+    state = _load_or_404(payload.session_id)
+    node, subtopic = _get_node_and_subtopic(state, node_id, subtopic_id)
+    if subtopic.quiz is None:
+        raise HTTPException(status_code=400, detail="No quiz generated for this sub-concept yet")
+    if subtopic.status != SubtopicStatus.AVAILABLE:
+        raise HTTPException(status_code=400, detail="This sub-concept isn't in progress")
+
+    score, results = grade_mcq_batch(subtopic.quiz.questions, payload.answers)
+    passed = score >= subtopic.quiz.pass_threshold
+    subtopic.quiz.last_score = score
+    subtopic.quiz.attempts += 1
+
+    if passed:
+        subtopic.status = SubtopicStatus.PASSED
+        _unlock_next_subtopic(node)
+        _maybe_generate_final_content(state, node, LLMClient())
+
+    state.log(
+        AgentName.ASSESSMENT,
+        "subtopic_quiz_submitted",
+        detail=f"{node_id}/{subtopic_id}: {score:.2f} ({'pass' if passed else 'fail'})",
+    )
+    db.save_state(state)
+    return {"score": score, "passed": passed, "results": results, "state": state}
+
+
+@app.post("/topic/{node_id}/subtopic/{subtopic_id}/skip")
+def skip_subtopic(node_id: str, subtopic_id: str, payload: SessionIdRequest):
+    """Per-subtopic skip is allowed (unlike the topic's own final quiz,
+    which is mandatory) - moves straight to the next sub-concept and, if
+    that was the last one, triggers the final quiz the same way passing
+    would."""
+    state = _load_or_404(payload.session_id)
+    node, subtopic = _get_node_and_subtopic(state, node_id, subtopic_id)
+    if subtopic.status != SubtopicStatus.AVAILABLE:
+        raise HTTPException(status_code=400, detail="This sub-concept isn't available yet")
+
+    subtopic.status = SubtopicStatus.SKIPPED
+    _unlock_next_subtopic(node)
+    _maybe_generate_final_content(state, node, LLMClient())
+
     db.save_state(state)
     return {"state": state}
 
@@ -784,6 +992,8 @@ class ProfileUpdateRequest(BaseModel):
     interests: list[str] | None = None
     stated_known_skills: list[str] | None = None
     prior_learning_history: list[str] | None = None
+    hobbies: list[str] | None = None
+    certifications: list[str] | None = None
 
 
 @app.patch("/profile")
@@ -820,6 +1030,10 @@ def update_profile(payload: ProfileUpdateRequest):
         profile.stated_known_skills = payload.stated_known_skills
     if payload.prior_learning_history is not None:
         profile.prior_learning_history = payload.prior_learning_history
+    if payload.hobbies is not None:
+        profile.hobbies = payload.hobbies
+    if payload.certifications is not None:
+        profile.certifications = payload.certifications
 
     db.save_state(state)
     return {"state": state}
@@ -838,19 +1052,24 @@ def analytics(session_id: str):
     per_topic_time: list[dict] = []
     week_ago = datetime.now(timezone.utc) - timedelta(days=7)
 
-    dataset_nodes = [n for n in (state.roadmap.nodes if state.roadmap else []) if n.assessment is not None]
+    # PATH_A_DATASET nodes, not "has an assessment" - the final quiz is now
+    # generated lazily (see roadmap_generator.py's generate_final_content),
+    # so a node can be mid-progress with node.assessment still None.
+    dataset_nodes = [
+        n for n in (state.roadmap.nodes if state.roadmap else []) if n.path_type == PathType.PATH_A_DATASET
+    ]
 
     for node in dataset_nodes:
         total_time_seconds += node.time_spent_seconds
         if node.time_spent_seconds > 0:
             per_topic_time.append({"topic": node.topic, "seconds": node.time_spent_seconds})
-        if node.assessment.attempts > 0:
+        if node.assessment is not None and node.assessment.attempts > 0:
             attempted_nodes += 1
             if node.status == NodeStatus.COMPLETE:
                 passed_nodes += 1
         if node.status == NodeStatus.COMPLETE:
             completed_total += 1
-            if node.assessment.last_score is not None:
+            if node.assessment is not None and node.assessment.last_score is not None:
                 scores.append(node.assessment.last_score)
         if node.completed_at is not None:
             completed_at = node.completed_at

@@ -54,6 +54,14 @@ CREATE TABLE IF NOT EXISTS user_knowledge (
     source TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS resume_files (
+    user_id UUID PRIMARY KEY REFERENCES users(user_id),
+    filename TEXT NOT NULL,
+    content_type TEXT NOT NULL,
+    data BYTEA NOT NULL,
+    uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 """
 
 
@@ -203,3 +211,30 @@ def delete_knowledge_entry(entry_id: str, user_id: str) -> None:
         conn.execute(
             "DELETE FROM user_knowledge WHERE id = %s AND user_id = %s", (entry_id, user_id)
         )
+
+
+# ---------------------------------------------------------------------------
+# Resume file storage (raw PDF bytes, one per user - a fresh upload replaces
+# the previous one). Separate from the `sessions.state` JSONB blob so the
+# binary never round-trips through AppState serialization - see
+# backend/api/main.py's /profile/resume and /profile/resume/file routes.
+# ---------------------------------------------------------------------------
+
+def save_resume_file(user_id: str, filename: str, content_type: str, data: bytes) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO resume_files (user_id, filename, content_type, data, uploaded_at) "
+            "VALUES (%s, %s, %s, %s, now()) "
+            "ON CONFLICT (user_id) DO UPDATE SET "
+            "filename = EXCLUDED.filename, content_type = EXCLUDED.content_type, "
+            "data = EXCLUDED.data, uploaded_at = EXCLUDED.uploaded_at",
+            (user_id, filename, content_type, data),
+        )
+
+
+def get_resume_file(user_id: str) -> dict | None:
+    with get_connection() as conn:
+        return conn.execute(
+            "SELECT filename, content_type, data, uploaded_at FROM resume_files WHERE user_id = %s",
+            (user_id,),
+        ).fetchone()

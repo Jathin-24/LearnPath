@@ -8,7 +8,7 @@ call volume low and the test deterministic about node count).
 
 import pytest
 
-from backend.agents.roadmap_generator import run_roadmap_generator
+from backend.agents.roadmap_generator import generate_final_content, run_roadmap_generator
 from backend.orchestrator.state_schema import (
     AgentName,
     AppState,
@@ -43,25 +43,21 @@ def _fixed_state() -> AppState:
     return state
 
 
-def test_roadmap_generator_attaches_project_and_assessment_to_dataset_and_web_nodes():
-    """PATH_A_DATASET nodes get project/quiz generated grounded in the
-    course; PATH_B_OPEN_WEB stub nodes get theirs via a real web search +
-    synthesis (backend/agents/path_b.py) - both fully filled by the time
-    ROADMAP_REVIEW is reached, so no dead unfilled node ever reaches the
-    learner. Real Tavily + LLM calls for the stub node."""
+def test_roadmap_generator_defers_dataset_content_but_fills_web_nodes():
+    """PATH_A_DATASET nodes' project/quiz are deliberately NOT attached here
+    any more - generate_final_content defers that until every subtopic is
+    resolved (see roadmap_generator.py's module docstring), so no LLM call
+    is spent on a topic the learner hasn't reached. PATH_B_OPEN_WEB stub
+    nodes still get filled eagerly via a real web search + synthesis
+    (backend/agents/path_b.py) - splitting that combined call is out of
+    scope. Real Tavily + LLM calls for the stub node."""
     state = _fixed_state()
 
     result = run_roadmap_generator(state)
 
     dataset_node = result.roadmap.get_node("python-for-absolute-beginners")
-    assert dataset_node.project is not None
-    assert dataset_node.project.title
-    assert dataset_node.project.description
-    assert dataset_node.assessment is not None
-    assert len(dataset_node.assessment.questions) == 3
-    for q in dataset_node.assessment.questions:
-        assert len(q.options) == 4
-        assert 0 <= q.correct_option_index < 4
+    assert dataset_node.project is None
+    assert dataset_node.assessment is None
 
     stub_node = result.roadmap.get_node("networking-fundamentals")
     assert stub_node.project is not None
@@ -71,6 +67,27 @@ def test_roadmap_generator_attaches_project_and_assessment_to_dataset_and_web_no
 
     assert result.stage == ConversationStage.ROADMAP_REVIEW
     assert result.next_agent == AgentName.DONE
+
+
+def test_generate_final_content_fills_dataset_node_lazily():
+    """The deferred half of the behavior above - explicitly triggering
+    generate_final_content (as main.py's _maybe_generate_final_content does
+    once a node's subtopics are all resolved) fills in project/quiz on
+    demand, grounded in the course. Real LLM call."""
+    state = _fixed_state()
+    result = run_roadmap_generator(state)
+    dataset_node = result.roadmap.get_node("python-for-absolute-beginners")
+
+    generate_final_content(result, dataset_node)
+
+    assert dataset_node.project is not None
+    assert dataset_node.project.title
+    assert dataset_node.project.description
+    assert dataset_node.assessment is not None
+    assert len(dataset_node.assessment.questions) == 3
+    for q in dataset_node.assessment.questions:
+        assert len(q.options) == 4
+        assert 0 <= q.correct_option_index < 4
 
 
 def test_roadmap_generator_requires_existing_roadmap():

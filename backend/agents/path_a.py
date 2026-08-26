@@ -86,10 +86,15 @@ def _build_planning_prompt(state: AppState, candidates: list[dict]) -> str:
         for c in candidates
     ]
     profile = state.learner_profile
+    instructions_clause = (
+        f"\nThe learner also asked for this to be taken into account: {profile.roadmap_instructions}"
+        if profile.roadmap_instructions
+        else ""
+    )
     return f"""You are planning a personalized learning roadmap. Learner's goal: \
 {profile.goal or "not specified"}
 Timeline: {profile.timeline or "not specified"}
-Interests: {", ".join(profile.interests) or "not specified"}
+Interests: {", ".join(profile.interests) or "not specified"}{instructions_clause}
 
 Candidate courses (already filtered for topical similarity, but similarity search \
 alone isn't precise enough - some may not genuinely fit):

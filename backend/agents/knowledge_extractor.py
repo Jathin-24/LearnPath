@@ -94,6 +94,74 @@ def extract_knowledge(
     ]
 
 
+class ResumeProfileOutput(BaseModel):
+    """Structured fields pulled from a resume for auto-filling the Profile
+    form directly - distinct from extract_knowledge's freeform category/
+    content entries above. Every field is optional/empty by default since a
+    resume may not state all of them; callers merge non-empty values into
+    LearnerProfile rather than overwriting fields the learner already
+    entered themselves."""
+
+    name: str | None = None
+    email: str | None = None
+    age: int | None = None
+    gender: str | None = None
+    occupation_status: str | None = None  # "student" | "working_professional", or None
+    professional_role: str | None = None
+    goal: str | None = None
+    interests: list[str] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list)
+    hobbies: list[str] = Field(default_factory=list)
+    certifications: list[str] = Field(default_factory=list)
+    prior_learning_history: list[str] = Field(default_factory=list)
+
+
+_RESUME_PROFILE_PROMPT = """Extract the following fields from the resume text below, if \
+present. Only include what's actually stated - don't infer or guess (e.g. don't guess \
+occupation_status unless the resume clearly indicates a current student or a working \
+professional). Leave a field null/empty if it isn't in the text.
+
+Respond with ONLY a JSON object (no markdown fences, no preamble) in this exact shape:
+{{
+  "name": "full name or null",
+  "email": "email or null",
+  "age": null,
+  "gender": "gender or null",
+  "occupation_status": "student" or "working_professional" or null,
+  "professional_role": "current job title, e.g. 'Backend Developer', or null",
+  "goal": "a one-sentence career/learning goal if the resume implies one, else null",
+  "interests": ["stated interests, if any"],
+  "skills": ["technical/professional skills listed"],
+  "hobbies": ["hobbies or personal interests outside work, if listed"],
+  "certifications": ["certifications, e.g. 'AWS Certified Developer'"],
+  "prior_learning_history": ["degrees, courses, or prior training mentioned"]
+}}
+
+Resume text:
+{text}
+"""
+
+
+def extract_resume_profile(text: str, llm_client: LLMClient | None = None) -> ResumeProfileOutput:
+    """Returns structured profile fields pulled from resume text - see
+    backend/api/main.py's /profile/resume, which merges these into
+    LearnerProfile (filling blanks / appending list fields, never
+    overwriting what the learner already told us directly). Raises on
+    double parse failure - callers must catch and treat this as
+    best-effort, same as extract_knowledge."""
+    client = llm_client or LLMClient()
+    prompt = _RESUME_PROFILE_PROMPT.format(text=text)
+
+    def attempt(p: str) -> ResumeProfileOutput:
+        return ResumeProfileOutput.model_validate(_parse_json(client.complete(p, max_tokens=900)))
+
+    try:
+        return attempt(prompt)
+    except (json.JSONDecodeError, ValidationError):
+        stricter = prompt + "\n\nRespond with ONLY valid JSON, no commentary."
+        return attempt(stricter)  # let this raise if it fails again - fail loud
+
+
 def format_knowledge_digest(entries: list[dict]) -> str:
     """Formats backend.common.db.get_knowledge_for_user's rows into a short
     block for prompt injection (profiler.py, roadmap_generator.py). Empty

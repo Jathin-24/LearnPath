@@ -96,12 +96,15 @@ class ProjectAndQuizOutput(BaseModel):
 
 
 def _generate_project_and_quiz(
-    client: LLMClient, topic: str, notes: str, timeline: str | None
+    client: LLMClient, topic: str, notes: str, timeline: str | None, instructions: str = ""
 ) -> ProjectAndQuizOutput:
     timeline_clause = f" The learner's overall timeline is: {timeline}." if timeline else ""
+    instructions_clause = (
+        f" The learner also asked for this to be taken into account: {instructions}" if instructions else ""
+    )
     prompt = f"""Generate a checkpoint project and a short assessment quiz for a learner \
 studying "{topic}" from the study notes below (web-sourced material, not in our course \
-dataset).{timeline_clause} The quiz MUST be answerable from these notes alone - do not test \
+dataset).{timeline_clause}{instructions_clause} The quiz MUST be answerable from these notes alone - do not test \
 facts that aren't actually covered here, even if you know them from elsewhere; a quiz question \
 that contradicts or goes beyond what the learner was just shown is worse than no question.
 
@@ -148,7 +151,9 @@ def _fill_node(state: AppState, node: RoadmapNode, client: LLMClient, search: Ta
     notes = _synthesize_notes(client, node.topic, web_results)
     _apply_resources(node, notes, web_results, youtube_links)
 
-    content = _generate_project_and_quiz(client, node.topic, notes, state.learner_profile.timeline)
+    content = _generate_project_and_quiz(
+        client, node.topic, notes, state.learner_profile.timeline, state.learner_profile.roadmap_instructions or ""
+    )
     node.project = ProjectAssignment(
         title=content.project_title,
         description=content.project_description,
@@ -168,14 +173,19 @@ class TopicPlanOutput(BaseModel):
     topics: list[str]
 
 
-def _plan_standalone_topics(client: LLMClient, search: TavilyClient, goal: str) -> list[str]:
+def _plan_standalone_topics(
+    client: LLMClient, search: TavilyClient, goal: str, instructions: str = ""
+) -> list[str]:
     web_results, _ = _search_topic(search, f"{goal} roadmap topics to learn in order")
     sources = "\n".join(
         f"- {r['title']}: {r.get('content', '')[:300]}" for r in web_results
     ) or "(no search results found - use general knowledge)"
+    instructions_clause = (
+        f" The learner also asked for this to be taken into account: {instructions}" if instructions else ""
+    )
     prompt = f"""A learner wants to: {goal}. Based on the web search results below, list 3-6 \
 topics they should learn, in order, to achieve this goal. Keep topic names short and specific \
-(not the goal itself restated).
+(not the goal itself restated).{instructions_clause}
 
 Search results:
 {sources}
@@ -234,7 +244,7 @@ def run_path_b(
     # the same way any PATH_B_OPEN_WEB stub does, via
     # roadmap_generator.py's per-node loop calling back in with node_id set.
     goal = state.learner_profile.goal or "general programming fundamentals"
-    topics = _plan_standalone_topics(client, search, goal)
+    topics = _plan_standalone_topics(client, search, goal, state.learner_profile.roadmap_instructions or "")
 
     nodes: list[RoadmapNode] = []
     prev_id: str | None = None

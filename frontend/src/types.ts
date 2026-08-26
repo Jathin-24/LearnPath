@@ -46,6 +46,11 @@ export interface LearnerProfile {
   prior_learning_history: string[];
   imported_context_raw: string | null;
   resume_raw: string | null;
+  resume_filename: string | null;
+  resume_uploaded_at: string | null;
+  hobbies: string[];
+  certifications: string[];
+  roadmap_instructions: string | null;
 }
 
 export interface ConceptAssessment {
@@ -88,10 +93,13 @@ export interface TopicAssessment {
   attempts: number;
 }
 
+export type SubtopicStatus = "locked" | "available" | "passed" | "skipped";
+
 export interface Subtopic {
   subtopic_id: string;
   name: string;
-  checked: boolean;
+  status: SubtopicStatus;
+  quiz: TopicAssessment | null;
 }
 
 export interface RoadmapNode {

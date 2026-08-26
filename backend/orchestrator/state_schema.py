@@ -101,6 +101,26 @@ class LearnerProfile(BaseModel):
     # imported_context_raw: a hint merged into Profiler's extraction prompt,
     # never treated as ground truth on its own.
     resume_raw: Optional[str] = None
+    # Metadata about the uploaded resume file itself (the raw bytes live in
+    # Postgres' resume_files table, keyed by user_id - see backend/common/db.py.
+    # Kept here so the frontend can show "what you uploaded" without a
+    # separate round trip.
+    resume_filename: Optional[str] = None
+    resume_uploaded_at: Optional[datetime] = None
+    # Structured fields pulled from the resume by
+    # knowledge_extractor.extract_resume_profile - distinct from the
+    # freeform user_knowledge base (backend/common/db.py) because these are
+    # meant to auto-fill the Profile form's own fields, not just feed
+    # prompts as background context.
+    hobbies: list[str] = Field(default_factory=list)
+    certifications: list[str] = Field(default_factory=list)
+    # Free-text steering for roadmap (re)generation - set via
+    # /roadmap/modify (pre-confirm, re-picks topics too) or the
+    # instructions field on /topic/{id}/regenerate and /roadmap/regenerate
+    # (post-confirm, content-only). Persistent (not a one-off scratch
+    # field) so a topic reached much later via lazy generation still
+    # honors it - see roadmap_generator.py/path_a.py/path_b.py's prompts.
+    roadmap_instructions: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -154,12 +174,21 @@ class TopicAssessment(BaseModel):
     attempts: int = 0
 
 
+class SubtopicStatus(str, Enum):
+    LOCKED = "locked"       # earlier subtopics not yet passed/skipped
+    AVAILABLE = "available"  # up next - "Done Learning" generates its quiz
+    PASSED = "passed"       # quiz passed at/above pass_threshold
+    SKIPPED = "skipped"     # learner explicitly skipped (allowed per-subtopic;
+                             # the topic's own final quiz is NOT skippable)
+
+
 class Subtopic(BaseModel):
     subtopic_id: str
     name: str
-    checked: bool = False   # learner's own progress tracker - informational only,
-                             # never gates NodeStatus/completion (that stays quiz-gated,
-                             # see backend/api/main.py's submit_assessment)
+    status: SubtopicStatus = SubtopicStatus.LOCKED
+    # Generated lazily on "Done Learning" (see roadmap_generator.py's
+    # generate_subtopic_quiz) - None until the learner actually asks for it.
+    quiz: Optional[TopicAssessment] = None
 
 
 class RoadmapNode(BaseModel):
@@ -181,6 +210,11 @@ class RoadmapNode(BaseModel):
     # Shared across both paths
     internal_prerequisites: list[str] = Field(default_factory=list)   # node_ids
     external_prerequisite_concepts: list[str] = Field(default_factory=list)  # not in dataset, informational
+    # Both generated lazily, together, once every subtopic below is
+    # PASSED/SKIPPED (see roadmap_generator.py's generate_final_content) -
+    # None until then. The frontend uses "project is not None" as the
+    # signal to reveal the project section (see docs/final_decisions.md-
+    # style comment in TopicDetail.tsx).
     project: Optional[ProjectAssignment] = None
     assessment: Optional[TopicAssessment] = None
 
@@ -201,7 +235,8 @@ class RoadmapNode(BaseModel):
     # unlocked - see main.py's _unlock_next_in_sequence) rather than eagerly
     # alongside project/assessment, per the user's explicit "don't spend LLM
     # calls on modules the learner hasn't reached yet" request. Empty until
-    # then. Checkboxes are informational only - see Subtopic.checked.
+    # then. Each subtopic gates its own quiz (also lazy - generated on
+    # "Done Learning"), passed sequentially - see Subtopic.status.
     subtopics: list[Subtopic] = Field(default_factory=list)
 
     # The learner's own free-text notes on this topic - never shown or used

@@ -3,13 +3,16 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   expandProject,
   explainNode,
+  generateSubtopicQuiz,
   getState,
   recordTimeSpent,
   refreshWebResources,
+  skipSubtopic,
   submitAssessment,
-  toggleSubtopic,
+  submitSubtopicQuiz,
   updateTopicNotes,
 } from "../api";
+import BuildingIndicator from "../components/BuildingIndicator";
 import NavBar from "../components/NavBar";
 import QuizForm from "../components/QuizForm";
 import QuizResults from "../components/QuizResults";
@@ -17,12 +20,45 @@ import PageSkeleton from "../components/Skeleton";
 import { useClipboardCopy } from "../hooks/useClipboardCopy";
 import { buildTopicPrompt } from "../promptTemplates";
 import { getSessionId } from "../session";
-import type { AppState, QuestionResult, RoadmapNode } from "../types";
+import type { AppState, QuestionResult, RoadmapNode, Subtopic } from "../types";
 
 function formatTimer(totalSeconds: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
+
+function subtopicStatusIcon(status: Subtopic["status"]): string {
+  switch (status) {
+    case "passed":
+      return "✓"; // check
+    case "skipped":
+      return "↷"; // skip arrow
+    case "available":
+      return "●"; // filled dot
+    default:
+      return "○"; // hollow dot
+  }
+}
+
+function subtopicStatusColor(status: Subtopic["status"]): string {
+  switch (status) {
+    case "passed":
+      return "text-green-400";
+    case "skipped":
+      return "text-slate-500";
+    case "available":
+      return "text-indigo-400";
+    default:
+      return "text-slate-700";
+  }
+}
+
+interface SubtopicResult {
+  subtopicId: string;
+  score: number;
+  passed: boolean;
+  results: QuestionResult[];
 }
 
 export default function TopicDetail() {
@@ -44,6 +80,11 @@ export default function TopicDetail() {
   const [expanding, setExpanding] = useState(false);
   const { copy: copyToClipboard } = useClipboardCopy();
   const [copiedSubtopicId, setCopiedSubtopicId] = useState<string | null>(null);
+
+  const [subtopicBusyId, setSubtopicBusyId] = useState<string | null>(null);
+  const [subtopicSubmitting, setSubtopicSubmitting] = useState(false);
+  const [subtopicResult, setSubtopicResult] = useState<SubtopicResult | null>(null);
+  const autoExpandedRef = useRef(false);
 
   const secondsRef = useRef(0);
   const lastFlushRef = useRef(0);
@@ -147,28 +188,49 @@ export default function TopicDetail() {
     }
   }
 
-  async function handleToggleSubtopic(subtopicId: string, checked: boolean) {
-    if (!sessionId || !nodeId || !node) return;
-    // Optimistic - this is a purely informational tracker, not worth a
-    // loading state for.
-    setNode({
-      ...node,
-      subtopics: node.subtopics.map((s) => (s.subtopic_id === subtopicId ? { ...s, checked } : s)),
-    });
+  function applyNewState(newState: AppState) {
+    setState(newState);
+    setNode(newState.roadmap?.nodes.find((n) => n.node_id === nodeId) ?? null);
+  }
+
+  async function handleGenerateSubtopicQuiz(subtopicId: string) {
+    if (!sessionId || !nodeId) return;
+    setSubtopicBusyId(subtopicId);
     try {
-      await toggleSubtopic(sessionId, nodeId, subtopicId, checked);
+      const { state: newState } = await generateSubtopicQuiz(sessionId, nodeId, subtopicId);
+      applyNewState(newState);
     } catch {
-      // revert on failure
-      setNode((prev) =>
-        prev
-          ? {
-              ...prev,
-              subtopics: prev.subtopics.map((s) =>
-                s.subtopic_id === subtopicId ? { ...s, checked: !checked } : s,
-              ),
-            }
-          : prev,
-      );
+      // no-op - the button staying put communicates the failure well enough here
+    } finally {
+      setSubtopicBusyId(null);
+    }
+  }
+
+  async function handleSubmitSubtopicQuiz(subtopicId: string, answers: string[]) {
+    if (!sessionId || !nodeId) return;
+    setSubtopicSubmitting(true);
+    try {
+      const res = await submitSubtopicQuiz(sessionId, nodeId, subtopicId, answers);
+      setSubtopicResult({ subtopicId, score: res.score, passed: res.passed, results: res.results });
+      applyNewState(res.state);
+    } catch {
+      // no-op
+    } finally {
+      setSubtopicSubmitting(false);
+    }
+  }
+
+  async function handleSkipSubtopic(subtopicId: string) {
+    if (!sessionId || !nodeId) return;
+    setSubtopicBusyId(subtopicId);
+    try {
+      const { state: newState } = await skipSubtopic(sessionId, nodeId, subtopicId);
+      setSubtopicResult(null);
+      applyNewState(newState);
+    } catch {
+      // no-op
+    } finally {
+      setSubtopicBusyId(null);
     }
   }
 
@@ -201,12 +263,41 @@ export default function TopicDetail() {
     try {
       const res = await submitAssessment(sessionId, nodeId, answers);
       setResult(res);
+      if (res.passed) {
+        // Passing flips node.status to COMPLETE server-side, which is what
+        // reveals the project section below - refetch so that shows up
+        // immediately instead of only after the next page load.
+        const { state: newState } = await getState(sessionId);
+        applyNewState(newState);
+      }
     } catch {
       setResult(null);
     } finally {
       setSubmitting(false);
     }
   }
+
+  const allSubtopicsResolved =
+    !node ||
+    node.subtopics.length === 0 ||
+    node.subtopics.every((s) => s.status === "passed" || s.status === "skipped");
+
+  // The project should read as a reward, not a checklist item at the top -
+  // it only appears once the topic is actually COMPLETE (final quiz
+  // passed), and gets its longer step-by-step version pulled in
+  // automatically right then rather than waiting on a manual click.
+  useEffect(() => {
+    if (
+      node?.status === "complete" &&
+      node.project &&
+      !node.project.detailed_description &&
+      !autoExpandedRef.current
+    ) {
+      autoExpandedRef.current = true;
+      handleExpandProject();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [node?.status, node?.project?.detailed_description]);
 
   if (!state || !node) {
     return (
@@ -247,74 +338,110 @@ export default function TopicDetail() {
             )}
           </div>
 
-          {node.project && (
-            <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-              <h2 className="text-sm font-semibold text-slate-300">Project</h2>
-              <h3 className="mt-1 font-medium">{node.project.title}</h3>
-              <p className="mt-1 text-sm text-slate-400">{node.project.description}</p>
-              {node.project.success_criteria.length > 0 && (
-                <div className="mt-3 border-t border-slate-800 pt-3">
-                  <p className="text-xs font-medium text-slate-400">Success looks like:</p>
-                  <ul className="mt-1.5 space-y-1">
-                    {node.project.success_criteria.map((c, i) => (
-                      <li key={i} className="flex items-start gap-1.5 text-xs text-slate-300">
-                        <span className="mt-0.5 text-indigo-400">✓</span>
-                        <span>{c}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {node.project.detailed_description ? (
-                <div className="mt-3 border-t border-slate-800 pt-3">
-                  <p className="text-xs font-medium text-slate-400">Step-by-step:</p>
-                  <p className="mt-1.5 whitespace-pre-wrap text-xs text-slate-300">
-                    {node.project.detailed_description}
-                  </p>
-                </div>
-              ) : (
-                <button
-                  onClick={handleExpandProject}
-                  disabled={expanding}
-                  className="mt-3 rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-700 disabled:opacity-50"
-                >
-                  {expanding ? "Expanding..." : "Make this more detailed"}
-                </button>
-              )}
-            </div>
-          )}
-
           {node.subtopics.length > 0 && (
             <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-              <div className="mb-2 flex items-center justify-between">
+              <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-slate-300">Sub-concepts</h2>
                 <span className="text-xs text-slate-500">
-                  {node.subtopics.filter((s) => s.checked).length}/{node.subtopics.length} done
+                  {node.subtopics.filter((s) => s.status === "passed" || s.status === "skipped").length}/
+                  {node.subtopics.length} done
                 </span>
               </div>
-              <ul className="space-y-1.5">
-                {node.subtopics.map((sub) => (
-                  <li key={sub.subtopic_id} className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={sub.checked}
-                      onChange={(e) => handleToggleSubtopic(sub.subtopic_id, e.target.checked)}
-                      className="h-4 w-4 rounded border-slate-700 bg-slate-950 accent-indigo-500"
-                    />
-                    <span
-                      className={`flex-1 text-sm ${sub.checked ? "text-slate-500 line-through" : "text-slate-200"}`}
-                    >
-                      {sub.name}
-                    </span>
-                    <button
-                      onClick={() => handleCopyTopicPrompt(sub.name, sub.subtopic_id)}
-                      title="Copy a prompt to learn this sub-concept in another AI tool"
-                      className="shrink-0 rounded-md bg-slate-800 px-2 py-0.5 text-xs text-slate-400 transition hover:bg-slate-700 hover:text-slate-200"
-                    >
-                      {copiedSubtopicId === sub.subtopic_id ? "Copied!" : "Copy prompt"}
-                    </button>
-                  </li>
-                ))}
+              <ul className="space-y-2">
+                {node.subtopics.map((sub) => {
+                  const activeResult = subtopicResult?.subtopicId === sub.subtopic_id ? subtopicResult : null;
+                  const busy = subtopicBusyId === sub.subtopic_id;
+                  return (
+                    <li key={sub.subtopic_id} className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <span className={`shrink-0 ${subtopicStatusColor(sub.status)}`}>
+                            {subtopicStatusIcon(sub.status)}
+                          </span>
+                          <span
+                            className={`truncate text-sm ${
+                              sub.status === "locked"
+                                ? "text-slate-600"
+                                : sub.status === "skipped"
+                                  ? "text-slate-500 line-through"
+                                  : "text-slate-200"
+                            }`}
+                          >
+                            {sub.name}
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => handleCopyTopicPrompt(sub.name, sub.subtopic_id)}
+                          title="Copy a prompt to learn this sub-concept in another AI tool"
+                          className="shrink-0 rounded-md bg-slate-800 px-2 py-0.5 text-xs text-slate-400 transition hover:bg-slate-700 hover:text-slate-200"
+                        >
+                          {copiedSubtopicId === sub.subtopic_id ? "Copied!" : "Copy prompt"}
+                        </button>
+                      </div>
+
+                      {sub.status === "available" && !sub.quiz && !activeResult && (
+                        <div className="mt-2.5 flex items-center gap-2">
+                          <button
+                            onClick={() => handleGenerateSubtopicQuiz(sub.subtopic_id)}
+                            disabled={busy}
+                            className="rounded-full bg-indigo-500 px-4 py-1.5 text-xs font-semibold transition hover:bg-indigo-400 disabled:opacity-50"
+                          >
+                            {busy ? "Preparing quiz..." : "Done Learning →"}
+                          </button>
+                          <button
+                            onClick={() => handleSkipSubtopic(sub.subtopic_id)}
+                            disabled={busy}
+                            className="rounded-full bg-slate-800 px-3 py-1.5 text-xs text-slate-400 transition hover:bg-slate-700 disabled:opacity-50"
+                          >
+                            Skip
+                          </button>
+                        </div>
+                      )}
+                      {busy && !sub.quiz && (
+                        <BuildingIndicator label="Putting together a quick quiz..." className="mt-2.5" />
+                      )}
+
+                      {sub.status === "available" && sub.quiz && !activeResult && (
+                        <div className="mt-3">
+                          <QuizForm
+                            key={sub.subtopic_id}
+                            questions={sub.quiz.questions}
+                            onSubmit={(answers) => handleSubmitSubtopicQuiz(sub.subtopic_id, answers)}
+                            submitting={subtopicSubmitting}
+                          />
+                        </div>
+                      )}
+
+                      {activeResult && (
+                        <div
+                          className={`mt-3 rounded-lg border p-3 ${
+                            activeResult.passed
+                              ? "animate-celebrate border-green-700 bg-green-900/20"
+                              : "border-red-700 bg-red-900/20"
+                          }`}
+                        >
+                          <p className="text-sm font-medium">
+                            {activeResult.passed ? "Passed!" : "Not quite - try again."}
+                          </p>
+                          <p className="text-xs text-slate-400">Score: {Math.round(activeResult.score * 100)}%</p>
+                          {activeResult.results.length > 0 && (
+                            <div className="mt-2">
+                              <QuizResults results={activeResult.results} />
+                            </div>
+                          )}
+                          {!activeResult.passed && (
+                            <button
+                              onClick={() => setSubtopicResult(null)}
+                              className="mt-2 rounded-full bg-slate-700 px-4 py-1.5 text-xs font-semibold hover:bg-slate-600"
+                            >
+                              Try Again
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           )}
@@ -366,9 +493,15 @@ export default function TopicDetail() {
             {refreshingWeb ? "Searching..." : "🔎 Find more resources"}
           </button>
 
-          {node.assessment && (
+          {!allSubtopicsResolved && (
+            <p className="text-xs text-slate-500">
+              Finish every sub-concept above to unlock this topic's final quiz.
+            </p>
+          )}
+
+          {node.assessment && allSubtopicsResolved && (
             <div>
-              <h2 className="mb-3 text-sm font-semibold text-slate-300">Checkpoint Quiz</h2>
+              <h2 className="mb-3 text-sm font-semibold text-slate-300">Final Quiz</h2>
               {result ? (
                 <div
                   className={`rounded-xl border p-4 ${
@@ -408,6 +541,44 @@ export default function TopicDetail() {
                   onSubmit={handleSubmitQuiz}
                   submitting={submitting}
                 />
+              )}
+            </div>
+          )}
+
+          {node.status === "complete" && node.project && (
+            <div className="rounded-xl border border-indigo-800 bg-indigo-950/20 p-4">
+              <h2 className="text-sm font-semibold text-indigo-300">🏆 Project</h2>
+              <h3 className="mt-1 font-medium">{node.project.title}</h3>
+              <p className="mt-1 text-sm text-slate-400">{node.project.description}</p>
+              {node.project.success_criteria.length > 0 && (
+                <div className="mt-3 border-t border-slate-800 pt-3">
+                  <p className="text-xs font-medium text-slate-400">Success looks like:</p>
+                  <ul className="mt-1.5 space-y-1">
+                    {node.project.success_criteria.map((c, i) => (
+                      <li key={i} className="flex items-start gap-1.5 text-xs text-slate-300">
+                        <span className="mt-0.5 text-indigo-400">✓</span>
+                        <span>{c}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {node.project.detailed_description ? (
+                <div className="mt-3 border-t border-slate-800 pt-3">
+                  <p className="text-xs font-medium text-slate-400">Step-by-step:</p>
+                  <p className="mt-1.5 whitespace-pre-wrap text-xs text-slate-300">
+                    {node.project.detailed_description}
+                  </p>
+                </div>
+              ) : expanding ? (
+                <BuildingIndicator label="Writing out the full step-by-step version..." className="mt-3" />
+              ) : (
+                <button
+                  onClick={handleExpandProject}
+                  className="mt-3 rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-700"
+                >
+                  Make this more detailed
+                </button>
               )}
             </div>
           )}

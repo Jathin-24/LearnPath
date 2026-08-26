@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { addRoadmapNode, getDashboard, getState, regenerateRoadmap } from "../api";
+import BuildingIndicator from "../components/BuildingIndicator";
 import NavBar from "../components/NavBar";
 import RoadmapGraph from "../components/RoadmapGraph";
 import RoadmapList from "../components/RoadmapList";
@@ -38,15 +39,14 @@ export default function Dashboard() {
 
   async function handleRegenerateRoadmap() {
     if (!sessionId) return;
-    if (
-      !window.confirm(
-        "Regenerate every not-yet-completed topic's project and quiz? This replaces their current content.",
-      )
-    )
-      return;
+    const instructions = window.prompt(
+      "Regenerate every not-yet-completed topic's project and quiz. Anything you'd like added or " +
+        "changed? (Leave blank to just regenerate as-is.)",
+    );
+    if (instructions === null) return; // cancelled
     setRegenerating(true);
     try {
-      const { state: newState } = await regenerateRoadmap(sessionId);
+      const { state: newState } = await regenerateRoadmap(sessionId, instructions || undefined);
       setState(newState);
     } catch {
       // no-op - the button staying put communicates the failure well enough here
@@ -191,6 +191,7 @@ export default function Dashboard() {
           <div>
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-semibold text-slate-300">Your Roadmap</h2>
+              {regenerating && <BuildingIndicator label="Regenerating with AI..." />}
               <div className="flex shrink-0 items-center gap-2">
                 <button
                   onClick={() => setAddingTopic((v) => !v)}

@@ -102,11 +102,14 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
   async function handleRegenerate(e: React.MouseEvent, nodeId: string) {
     e.stopPropagation();
     if (!sessionId || !onChanged) return;
-    if (!window.confirm("Regenerate this topic's project and quiz? This replaces its current content."))
-      return;
+    const instructions = window.prompt(
+      "Regenerate this topic's project and quiz. Anything you'd like added or changed? " +
+        "(Leave blank to just regenerate as-is.)",
+    );
+    if (instructions === null) return; // cancelled
     setBusyNodeId(nodeId);
     try {
-      const { state } = await regenerateTopic(sessionId, nodeId);
+      const { state } = await regenerateTopic(sessionId, nodeId, instructions || undefined);
       onChanged(state);
     } catch {
       // no-op - the button staying put communicates the failure well enough here
@@ -166,7 +169,7 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
             </div>
           )}
 
-          {node.project && (
+          {node.project && node.status === "complete" && (
             <div className="mt-2 rounded-md bg-slate-950 p-2">
               <p className="text-xs font-medium text-indigo-300">Project: {node.project.title}</p>
               <p className="mt-0.5 text-xs text-slate-400">{node.project.description}</p>

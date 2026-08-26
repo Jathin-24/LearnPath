@@ -137,15 +137,37 @@ export function refreshWebResources(sessionId: string, nodeId: string): Promise<
   });
 }
 
-export function toggleSubtopic(
+export function generateSubtopicQuiz(
   sessionId: string,
   nodeId: string,
   subtopicId: string,
-  checked: boolean,
 ): Promise<{ state: AppState }> {
-  return request(`/topic/${nodeId}/subtopic/${subtopicId}`, {
-    method: "PATCH",
-    body: JSON.stringify({ session_id: sessionId, checked }),
+  return request(`/topic/${nodeId}/subtopic/${subtopicId}/quiz/generate`, {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+}
+
+export function submitSubtopicQuiz(
+  sessionId: string,
+  nodeId: string,
+  subtopicId: string,
+  answers: string[],
+): Promise<{ score: number; passed: boolean; results: QuestionResult[]; state: AppState }> {
+  return request(`/topic/${nodeId}/subtopic/${subtopicId}/quiz/submit`, {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId, answers }),
+  });
+}
+
+export function skipSubtopic(
+  sessionId: string,
+  nodeId: string,
+  subtopicId: string,
+): Promise<{ state: AppState }> {
+  return request(`/topic/${nodeId}/subtopic/${subtopicId}/skip`, {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId }),
   });
 }
 
@@ -159,17 +181,30 @@ export function expandProject(
   });
 }
 
-export function regenerateTopic(sessionId: string, nodeId: string): Promise<{ state: AppState }> {
+export function regenerateTopic(
+  sessionId: string,
+  nodeId: string,
+  instructions?: string,
+): Promise<{ state: AppState }> {
   return request(`/topic/${nodeId}/regenerate`, {
     method: "POST",
-    body: JSON.stringify({ session_id: sessionId }),
+    body: JSON.stringify({ session_id: sessionId, instructions }),
   });
 }
 
-export function regenerateRoadmap(sessionId: string): Promise<{ state: AppState }> {
+export function regenerateRoadmap(sessionId: string, instructions?: string): Promise<{ state: AppState }> {
   return request("/roadmap/regenerate", {
     method: "POST",
-    body: JSON.stringify({ session_id: sessionId }),
+    body: JSON.stringify({ session_id: sessionId, instructions }),
+  });
+}
+
+// Pre-confirm only - re-picks topics/courses too, not just content, based
+// on free-text instructions (see main.py's /roadmap/modify docstring).
+export function modifyRoadmap(sessionId: string, instructions: string): Promise<{ state: AppState }> {
+  return request("/roadmap/modify", {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId, instructions }),
   });
 }
 
@@ -231,6 +266,8 @@ export interface ProfileUpdate {
   interests?: string[];
   stated_known_skills?: string[];
   prior_learning_history?: string[];
+  hobbies?: string[];
+  certifications?: string[];
 }
 
 export function updateProfile(sessionId: string, update: ProfileUpdate): Promise<{ state: AppState }> {
@@ -279,4 +316,10 @@ export async function uploadResume(sessionId: string, file: File): Promise<{ sta
     throw new ApiError(res.status, body || res.statusText);
   }
   return res.json() as Promise<{ state: AppState }>;
+}
+
+// Not routed through request() - this is opened directly in a new tab
+// (<a href>), not fetched as JSON.
+export function resumeFileUrl(sessionId: string): string {
+  return `${BASE_URL}/profile/resume/file/${sessionId}`;
 }

@@ -1,30 +1,34 @@
 """
 roadmap_generator.py
 
-Roadmap Generator Agent: attaches a ProjectAssignment + TopicAssessment to
-each Path-A dataset node (Path-B stub nodes stay unfilled - flagged for the
-not-yet-built Path-B agent, per docs/api_contract.md step 4), then finalizes
-the roadmap for review.
+Roadmap Generator Agent: finalizes the roadmap's topic skeleton for review
+(Path-B stub nodes get filled eagerly here via run_path_b; Path-A dataset
+nodes deliberately do NOT - see generate_final_content below), then pauses
+the graph for the learner.
 
 Per docs/project_brief.md section 7 ("explicit generate -> review -> confirm"
 decision): this agent pauses the graph (next_agent=DONE) after assembling
 the roadmap - state.stage moves to ROADMAP_REVIEW and the user reviews/edits
 before /roadmap/confirm locks it in and unlocks the first available nodes.
 
-One combined LLM call per dataset node (project + quiz together) to keep
-free-tier call volume down - Project Generator's responsibility (per
-docs/project_brief.md's agent table) is folded in here rather than a
-separate graph node, since CLAUDE.md's build order doesn't list it as its
-own step.
+A Path-A dataset node's ProjectAssignment + final TopicAssessment (one
+combined LLM call, kept together to keep free-tier call volume down) is
+generated lazily by generate_final_content, only once every one of that
+node's subtopics has been resolved (passed or explicitly skipped - see
+main.py's _maybe_generate_final_content, called from the subtopic quiz
+submit/skip routes and from _unlock_next_in_sequence for the zero-subtopic
+edge case). This mirrors the same "don't spend LLM calls on modules the
+learner hasn't reached" reasoning that already made subtopics themselves
+lazy (ensure_subtopics) - extended one step further so the topic's project
+and checkpoint quiz aren't generated, or shown, until the learner has
+actually worked through its sub-concepts.
 
 Also owns writing to the roadmap_templates cache (backend/common/db.py):
-once a freshly-generated roadmap's nodes all have projects/assessments
-attached, it's saved so the next learner with a very similar goal can
-reuse it (backend/agents/path_a.py checks this cache first). Nodes reused
-from a template already have `project` set, so the per-node generation
-loop below skips them - the same loop naturally handles both "fresh
-generation" and "template reuse, nothing left to do" without a separate
-flag.
+a freshly-generated roadmap's topic list is saved so the next learner with
+a very similar goal can reuse it (backend/agents/path_a.py checks this
+cache first) - this only ever caches the skeleton now (topics/prereqs/
+course links), never project/assessment content, since that's generated
+per-learner anyway.
 """
 
 import json
@@ -45,11 +49,13 @@ from backend.orchestrator.state_schema import (
     ProjectAssignment,
     RoadmapNode,
     Subtopic,
+    SubtopicStatus,
     TopicAssessment,
 )
 from backend.rag.retriever import embed_text
 
 QUESTIONS_PER_NODE = 3
+SUBTOPIC_QUIZ_QUESTIONS = 2
 
 
 class NodeContentOutput(BaseModel):
@@ -71,6 +77,7 @@ def _build_prompt(
     timeline: str | None,
     known_concepts: list[str],
     knowledge_digest: str = "",
+    instructions: str = "",
 ) -> str:
     summary_clause = f": {course_summary}" if course_summary else ""
     timeline_clause = f" The learner's overall timeline is: {timeline}." if timeline else ""
@@ -81,8 +88,13 @@ def _build_prompt(
         if known_concepts
         else ""
     )
+    instructions_clause = (
+        f" The learner also asked for this to be taken into account: {instructions}"
+        if instructions
+        else ""
+    )
     return f"""Generate a checkpoint project and a short assessment quiz for a learner \
-studying "{topic}"{summary_clause}.{timeline_clause}{known_clause}{knowledge_digest}
+studying "{topic}"{summary_clause}.{timeline_clause}{known_clause}{instructions_clause}{knowledge_digest}
 
 Respond with ONLY a JSON object (no markdown fences, no preamble) in this exact shape:
 {{
@@ -109,8 +121,9 @@ def _generate_node_content(
     timeline: str | None,
     known_concepts: list[str],
     knowledge_digest: str = "",
+    instructions: str = "",
 ) -> NodeContentOutput:
-    prompt = _build_prompt(topic, course_summary, timeline, known_concepts, knowledge_digest)
+    prompt = _build_prompt(topic, course_summary, timeline, known_concepts, knowledge_digest, instructions)
 
     def attempt(p: str) -> NodeContentOutput:
         output = NodeContentOutput.model_validate(_parse_json(client.complete(p, max_tokens=1500)))
@@ -170,6 +183,15 @@ def _generate_subtopics(
     return [Subtopic(subtopic_id=slugify(name), name=name) for name in output.subtopics]
 
 
+def _init_subtopic_progress(subtopics: list[Subtopic]) -> None:
+    """First subtopic becomes AVAILABLE (its "Done Learning" quiz can be
+    generated), the rest stay LOCKED - the strictly-sequential ordering the
+    user asked for, mirroring how roadmap nodes themselves unlock one at a
+    time (see main.py's _unlock_next_in_sequence)."""
+    if subtopics:
+        subtopics[0].status = SubtopicStatus.AVAILABLE
+
+
 def ensure_subtopics(state: AppState, node: RoadmapNode, llm_client: LLMClient | None = None) -> None:
     """Lazily fills node.subtopics the first time this node is reached - see
     main.py's _unlock_next_in_sequence, which calls this right before a node
@@ -181,6 +203,99 @@ def ensure_subtopics(state: AppState, node: RoadmapNode, llm_client: LLMClient |
     client = llm_client or LLMClient()
     known_concepts = state.skill_gap_map.known()
     node.subtopics = _generate_subtopics(client, node.topic, node.course_summary, known_concepts)
+    _init_subtopic_progress(node.subtopics)
+
+
+class SubtopicQuizOutput(BaseModel):
+    questions: list[MCQQuestion]
+
+
+_SUBTOPIC_QUIZ_PROMPT_TEMPLATE = """Write a short quiz for a learner who just studied the \
+sub-concept "{subtopic}", part of learning "{topic}"{summary_clause}.
+
+Respond with ONLY a JSON object (no markdown fences, no preamble) in this exact shape:
+{{
+  "questions": [
+    {{"question": "...", "options": ["...", "...", "...", "..."], "correct_option_index": 0, \
+"explanation": "one sentence on why that answer is correct"}}
+  ]
+}}
+Write exactly {n} questions, each with exactly 4 options and an explanation, testing ONLY \
+"{subtopic}" itself - not the broader topic."""
+
+
+def generate_subtopic_quiz(
+    state: AppState, node: RoadmapNode, subtopic: Subtopic, llm_client: LLMClient | None = None
+) -> TopicAssessment:
+    """Generates (and caches onto subtopic.quiz) a short quiz for one
+    sub-concept - triggered by the learner's "Done Learning" action (see
+    main.py's /topic/{id}/subtopic/{id}/quiz/generate). Idempotent: returns
+    the existing quiz without spending another call if one was already
+    generated (e.g. the learner navigated away and came back)."""
+    if subtopic.quiz is not None:
+        return subtopic.quiz
+
+    client = llm_client or LLMClient()
+    summary_clause = f": {node.course_summary}" if node.course_summary else ""
+    prompt = _SUBTOPIC_QUIZ_PROMPT_TEMPLATE.format(
+        subtopic=subtopic.name, topic=node.topic, summary_clause=summary_clause, n=SUBTOPIC_QUIZ_QUESTIONS
+    )
+
+    def attempt(p: str) -> SubtopicQuizOutput:
+        output = SubtopicQuizOutput.model_validate(_parse_json(client.complete(p, max_tokens=900)))
+        if len(output.questions) != SUBTOPIC_QUIZ_QUESTIONS:
+            raise ValueError(f"expected {SUBTOPIC_QUIZ_QUESTIONS} questions, got {len(output.questions)}")
+        return output
+
+    try:
+        output = attempt(prompt)
+    except (json.JSONDecodeError, ValidationError, ValueError):
+        stricter = prompt + (
+            f"\n\nYou MUST return exactly {SUBTOPIC_QUIZ_QUESTIONS} questions. Respond with ONLY valid JSON."
+        )
+        output = attempt(stricter)  # let this raise if it fails again - fail loud
+
+    subtopic.quiz = TopicAssessment(questions=output.questions)
+    return subtopic.quiz
+
+
+def generate_final_content(state: AppState, node: RoadmapNode, llm_client: LLMClient | None = None) -> None:
+    """Generates the topic's project + final checkpoint quiz - deferred
+    until every subtopic is PASSED/SKIPPED (see main.py's
+    _maybe_generate_final_content), per the user's explicit "don't generate
+    the quiz right now" request: no LLM spend on a topic's wrap-up content
+    until the learner has actually worked through its sub-concepts.
+    Idempotent - a no-op if node.project is already set, so callers can
+    call this unconditionally after each subtopic resolves."""
+    if node.project is not None:
+        return
+
+    client = llm_client or LLMClient()
+    known_concepts = state.skill_gap_map.known()
+    knowledge_digest = (
+        format_knowledge_digest(db.get_knowledge_for_user(state.user_id)) if state.user_id else ""
+    )
+    instructions = state.learner_profile.roadmap_instructions or ""
+
+    if node.path_type == PathType.PATH_A_DATASET:
+        content = _generate_node_content(
+            client,
+            node.topic,
+            node.course_summary,
+            state.learner_profile.timeline,
+            known_concepts,
+            knowledge_digest,
+            instructions,
+        )
+        node.project = ProjectAssignment(
+            title=content.project_title,
+            description=content.project_description,
+            success_criteria=content.success_criteria,
+        )
+        node.assessment = TopicAssessment(questions=content.questions)
+        node.estimated_days = max(1, content.estimated_days)
+    else:
+        run_path_b(state, node_id=node.node_id, llm_client=client, force=True)
 
 
 class ProjectExpansionOutput(BaseModel):
@@ -250,6 +365,7 @@ def regenerate_node_content(state: AppState, node: RoadmapNode, llm_client: LLMC
     knowledge_digest = (
         format_knowledge_digest(db.get_knowledge_for_user(state.user_id)) if state.user_id else ""
     )
+    instructions = state.learner_profile.roadmap_instructions or ""
 
     if node.path_type == PathType.PATH_A_DATASET:
         content = _generate_node_content(
@@ -259,6 +375,7 @@ def regenerate_node_content(state: AppState, node: RoadmapNode, llm_client: LLMC
             state.learner_profile.timeline,
             known_concepts,
             knowledge_digest,
+            instructions,
         )
         node.project = ProjectAssignment(
             title=content.project_title,
@@ -272,6 +389,7 @@ def regenerate_node_content(state: AppState, node: RoadmapNode, llm_client: LLMC
 
     if node.subtopics:
         node.subtopics = _generate_subtopics(client, node.topic, node.course_summary, known_concepts)
+        _init_subtopic_progress(node.subtopics)
 
 
 def _save_as_template(state: AppState) -> None:
@@ -286,6 +404,17 @@ def _save_as_template(state: AppState) -> None:
 
 
 def run_roadmap_generator(state: AppState, llm_client: LLMClient | None = None) -> AppState:
+    """Finalizes the roadmap skeleton for review. Per the user's "don't
+    generate the quiz right now" request, PATH_A_DATASET nodes' project +
+    final quiz are NOT attached here any more - they're deferred all the
+    way to generate_final_content, triggered once a node's subtopics are
+    all resolved (see main.py's _maybe_generate_final_content). PATH_B_OPEN_WEB
+    nodes still get filled eagerly via run_path_b below (one combined web-
+    search + synthesis call produces notes/resources/project/quiz together -
+    splitting that is out of scope here); the frontend gates showing their
+    project/final quiz on subtopic completion the same way, so the learner-
+    facing behavior stays consistent across both path types even though the
+    backend generation timing differs."""
     if state.roadmap is None:
         raise ValueError(
             "Roadmap Generator requires state.roadmap to already exist (Path-A must run first)"
@@ -295,30 +424,12 @@ def run_roadmap_generator(state: AppState, llm_client: LLMClient | None = None) 
 
     dataset_nodes = [n for n in state.roadmap.nodes if n.path_type == PathType.PATH_A_DATASET]
     web_nodes = [n for n in state.roadmap.nodes if n.path_type == PathType.PATH_B_OPEN_WEB]
-    was_reused = bool(dataset_nodes) and all(n.project is not None for n in dataset_nodes)
-
-    known_concepts = state.skill_gap_map.known()
-    knowledge_digest = (
-        format_knowledge_digest(db.get_knowledge_for_user(state.user_id)) if state.user_id else ""
-    )
-    for node in dataset_nodes:
-        if node.project is not None:
-            continue  # already populated - this roadmap was reused from a template
-        content = _generate_node_content(
-            client,
-            node.topic,
-            node.course_summary,
-            state.learner_profile.timeline,
-            known_concepts,
-            knowledge_digest,
-        )
-        node.project = ProjectAssignment(
-            title=content.project_title,
-            description=content.project_description,
-            success_criteria=content.success_criteria,
-        )
-        node.assessment = TopicAssessment(questions=content.questions)
-        node.estimated_days = max(1, content.estimated_days)
+    # Was this roadmap's topic list reused from the cross-user template
+    # cache? Can't infer that from node.project any more (nothing attaches
+    # project eagerly for dataset nodes now) - read it off Path-A's own log
+    # entry instead, which is unambiguous about which branch it took.
+    path_a_events = [e for e in state.progress_log if e.agent == AgentName.PATH_A]
+    was_reused = bool(path_a_events) and path_a_events[-1].event_type == "roadmap_reused_from_template"
 
     for node in web_nodes:
         if node.project is not None:
@@ -331,7 +442,7 @@ def run_roadmap_generator(state: AppState, llm_client: LLMClient | None = None) 
     state.log(
         AgentName.ROADMAP_GENERATOR,
         "roadmap_finalized",
-        detail=f"{len(state.roadmap.nodes)} nodes, projects/assessments attached to dataset nodes",
+        detail=f"{len(state.roadmap.nodes)} nodes ({len(dataset_nodes)} dataset, {len(web_nodes)} web)",
     )
 
     if not was_reused and state.learner_profile.goal:

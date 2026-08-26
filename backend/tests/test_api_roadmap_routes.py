@@ -20,6 +20,32 @@ def _seed_goal(session_id: str, goal: str) -> None:
     db.save_state(state)
 
 
+def _pass_all_subtopics(client: TestClient, session_id: str, node_id: str, subtopics: list[dict]) -> dict:
+    """Drives every subtopic to PASSED via the real quiz generate/submit
+    routes (strictly sequential, per the user's explicit ask), then returns
+    the refreshed node dict - by the last one, generate_final_content
+    should have populated project/assessment."""
+    node: dict = {}
+    for sub in subtopics:
+        gen = client.post(
+            f"/topic/{node_id}/subtopic/{sub['subtopic_id']}/quiz/generate",
+            json={"session_id": session_id},
+        )
+        assert gen.status_code == 200
+        node = next(n for n in gen.json()["state"]["roadmap"]["nodes"] if n["node_id"] == node_id)
+        quiz = next(s for s in node["subtopics"] if s["subtopic_id"] == sub["subtopic_id"])["quiz"]
+        answers = [q["options"][q["correct_option_index"]] for q in quiz["questions"]]
+
+        sub_resp = client.post(
+            f"/topic/{node_id}/subtopic/{sub['subtopic_id']}/quiz/submit",
+            json={"session_id": session_id, "answers": answers},
+        )
+        assert sub_resp.status_code == 200
+        assert sub_resp.json()["passed"] is True
+        node = next(n for n in sub_resp.json()["state"]["roadmap"]["nodes"] if n["node_id"] == node_id)
+    return node
+
+
 def test_generate_confirm_explain_submit_flow():
     with TestClient(app) as client:
         created = client.post("/session")
@@ -45,28 +71,44 @@ def test_generate_confirm_explain_submit_flow():
         available = [n for n in confirmed_state["roadmap"]["nodes"] if n["status"] == "available"]
         assert len(available) == 1, f"expected exactly one available node, got {len(available)}"
         current_node = available[0]
+        node_id = current_node["node_id"]
         # A node only becomes available once it's actually completable - see
-        # backend/api/main.py's _unlock_next_in_sequence. Roadmap Generator
-        # fills PATH_B_OPEN_WEB stubs via Path-B before ROADMAP_REVIEW too
-        # (backend/agents/path_b.py), so the first available node can now
-        # legitimately be either type as long as it has a real assessment.
-        assert current_node["assessment"] is not None
-
-        # Round 6: project/quiz still generate eagerly for every node, but
-        # subtopics are lazy - only the just-unlocked node should have them.
+        # backend/api/main.py's _unlock_next_in_sequence. Round 7: a
+        # PATH_A_DATASET node's project/quiz are no longer eager - a
+        # freshly-unlocked one has subtopics but no final assessment until
+        # they're all resolved. PATH_B_OPEN_WEB nodes (e.g. an external
+        # prerequisite concept, often first in the sequence) still fill
+        # eagerly via run_path_b - see roadmap_generator.py's module
+        # docstring for why that split is intentional.
+        if current_node["path_type"] == "path_a_dataset":
+            assert current_node["assessment"] is None
+        else:
+            assert current_node["assessment"] is not None
         assert len(current_node["subtopics"]) > 0
+        assert current_node["subtopics"][0]["status"] == "available"
+        assert all(s["status"] == "locked" for s in current_node["subtopics"][1:])
         locked_nodes = [n for n in confirmed_state["roadmap"]["nodes"] if n["status"] == "locked"]
         assert all(n["subtopics"] == [] for n in locked_nodes)
 
-        explained = client.post(f"/roadmap/explain/{current_node['node_id']}", json={"session_id": session_id})
+        explained = client.post(f"/roadmap/explain/{node_id}", json={"session_id": session_id})
         assert explained.status_code == 200
         assert len(explained.json()["explanation"]) > 10
 
-        questions = current_node["assessment"]["questions"]
+        # The final quiz can't be taken until every sub-concept is resolved.
+        blocked = client.post(
+            f"/topic/{node_id}/assessment/submit", json={"session_id": session_id, "answers": []}
+        )
+        assert blocked.status_code == 400
+
+        node_after_subtopics = _pass_all_subtopics(client, session_id, node_id, current_node["subtopics"])
+        assert node_after_subtopics["project"] is not None
+        assert node_after_subtopics["assessment"] is not None
+
+        questions = node_after_subtopics["assessment"]["questions"]
         correct_answers = [q["options"][q["correct_option_index"]] for q in questions]
 
         submitted = client.post(
-            f"/topic/{current_node['node_id']}/assessment/submit",
+            f"/topic/{node_id}/assessment/submit",
             json={"session_id": session_id, "answers": correct_answers},
         )
         assert submitted.status_code == 200
@@ -85,7 +127,7 @@ def test_generate_confirm_explain_submit_flow():
             assert len(still_available[0]["subtopics"]) > 0
 
 
-def test_toggle_subtopic_and_regenerate_topic():
+def test_subtopic_quiz_generate_submit_skip_and_regenerate_topic():
     with TestClient(app) as client:
         created = client.post("/session")
         session_id = created.json()["session_id"]
@@ -93,34 +135,86 @@ def test_toggle_subtopic_and_regenerate_topic():
         client.post("/roadmap/generate/path-a", json={"session_id": session_id})
         confirmed_state = client.post("/roadmap/confirm", json={"session_id": session_id}).json()["state"]
         current_node = next(n for n in confirmed_state["roadmap"]["nodes"] if n["status"] == "available")
-        subtopic_id = current_node["subtopics"][0]["subtopic_id"]
+        node_id = current_node["node_id"]
+        subtopics = current_node["subtopics"]
+        first_id = subtopics[0]["subtopic_id"]
 
-        toggled = client.patch(
-            f"/topic/{current_node['node_id']}/subtopic/{subtopic_id}",
-            json={"session_id": session_id, "checked": True},
-        )
-        assert toggled.status_code == 200
-        toggled_node = next(
-            n for n in toggled.json()["state"]["roadmap"]["nodes"] if n["node_id"] == current_node["node_id"]
-        )
-        assert next(s for s in toggled_node["subtopics"] if s["subtopic_id"] == subtopic_id)["checked"] is True
-        # Toggling a subtopic never affects NodeStatus - informational only.
-        assert toggled_node["status"] == "available"
+        if len(subtopics) > 1:
+            # Locked (not-yet-reached) subtopics can't start a quiz.
+            second_id = subtopics[1]["subtopic_id"]
+            blocked = client.post(
+                f"/topic/{node_id}/subtopic/{second_id}/quiz/generate", json={"session_id": session_id}
+            )
+            assert blocked.status_code == 400
 
-        old_project_title = current_node["project"]["title"]
+        generated = client.post(
+            f"/topic/{node_id}/subtopic/{first_id}/quiz/generate", json={"session_id": session_id}
+        )
+        assert generated.status_code == 200
+        gen_node = next(n for n in generated.json()["state"]["roadmap"]["nodes"] if n["node_id"] == node_id)
+        quiz = next(s for s in gen_node["subtopics"] if s["subtopic_id"] == first_id)["quiz"]
+        assert len(quiz["questions"]) >= 1
+
+        wrong = ["definitely not a real option"] * len(quiz["questions"])
+        failed = client.post(
+            f"/topic/{node_id}/subtopic/{first_id}/quiz/submit",
+            json={"session_id": session_id, "answers": wrong},
+        )
+        assert failed.status_code == 200
+        assert failed.json()["passed"] is False
+        after_fail_node = next(
+            n for n in failed.json()["state"]["roadmap"]["nodes"] if n["node_id"] == node_id
+        )
+        assert next(s for s in after_fail_node["subtopics"] if s["subtopic_id"] == first_id)["status"] == "available"
+
+        correct = [q["options"][q["correct_option_index"]] for q in quiz["questions"]]
+        passed = client.post(
+            f"/topic/{node_id}/subtopic/{first_id}/quiz/submit",
+            json={"session_id": session_id, "answers": correct},
+        )
+        assert passed.status_code == 200
+        assert passed.json()["passed"] is True
+        passed_node = next(n for n in passed.json()["state"]["roadmap"]["nodes"] if n["node_id"] == node_id)
+        assert next(s for s in passed_node["subtopics"] if s["subtopic_id"] == first_id)["status"] == "passed"
+
+        if len(subtopics) > 1:
+            second_id = subtopics[1]["subtopic_id"]
+            assert next(s for s in passed_node["subtopics"] if s["subtopic_id"] == second_id)["status"] == "available"
+            # Per-subtopic skip is allowed (unlike the mandatory final quiz).
+            skipped = client.post(
+                f"/topic/{node_id}/subtopic/{second_id}/skip", json={"session_id": session_id}
+            )
+            assert skipped.status_code == 200
+            skipped_node = next(
+                n for n in skipped.json()["state"]["roadmap"]["nodes"] if n["node_id"] == node_id
+            )
+            assert next(s for s in skipped_node["subtopics"] if s["subtopic_id"] == second_id)["status"] == "skipped"
+
         regenerated = client.post(
-            f"/topic/{current_node['node_id']}/regenerate", json={"session_id": session_id}
+            f"/topic/{node_id}/regenerate",
+            json={"session_id": session_id, "instructions": "make it more example-driven"},
         )
         assert regenerated.status_code == 200
         regenerated_node = next(
-            n for n in regenerated.json()["state"]["roadmap"]["nodes"] if n["node_id"] == current_node["node_id"]
+            n for n in regenerated.json()["state"]["roadmap"]["nodes"] if n["node_id"] == node_id
         )
         assert regenerated_node["project"] is not None
         assert regenerated_node["assessment"] is not None
-        # Not a strict guarantee the title changes, but content should exist
-        # either way - the real assertion is that regeneration didn't error
-        # and left the node in a usable state.
         assert regenerated_node["project"]["title"]
+
+
+def _skip_all_subtopics_and_reach_final_quiz(client: TestClient, session_id: str, node_id: str, node: dict) -> dict:
+    """Skips every subtopic (cheap - no quiz-generation LLM calls) so the
+    node's final quiz/project generate, for tests that only care about
+    behavior downstream of "all subtopics resolved"."""
+    while any(s["status"] in ("available", "locked") for s in node["subtopics"]):
+        available = next(s for s in node["subtopics"] if s["status"] == "available")
+        resp = client.post(
+            f"/topic/{node_id}/subtopic/{available['subtopic_id']}/skip", json={"session_id": session_id}
+        )
+        assert resp.status_code == 200
+        node = next(n for n in resp.json()["state"]["roadmap"]["nodes"] if n["node_id"] == node_id)
+    return node
 
 
 def test_expand_project_is_cached():
@@ -131,19 +225,19 @@ def test_expand_project_is_cached():
         client.post("/roadmap/generate/path-a", json={"session_id": session_id})
         confirmed_state = client.post("/roadmap/confirm", json={"session_id": session_id}).json()["state"]
         current_node = next(n for n in confirmed_state["roadmap"]["nodes"] if n["status"] == "available")
+        node_id = current_node["node_id"]
 
-        first = client.post(
-            f"/topic/{current_node['node_id']}/project/expand", json={"session_id": session_id}
-        )
+        node = _skip_all_subtopics_and_reach_final_quiz(client, session_id, node_id, current_node)
+        assert node["project"] is not None
+
+        first = client.post(f"/topic/{node_id}/project/expand", json={"session_id": session_id})
         assert first.status_code == 200
         detailed = first.json()["detailed_description"]
         assert len(detailed) > 10
 
         # Cached on node.project.detailed_description - second call returns
         # the same text without erroring, whether or not it re-spends a call.
-        second = client.post(
-            f"/topic/{current_node['node_id']}/project/expand", json={"session_id": session_id}
-        )
+        second = client.post(f"/topic/{node_id}/project/expand", json={"session_id": session_id})
         assert second.status_code == 200
         assert second.json()["detailed_description"] == detailed
 
@@ -156,15 +250,19 @@ def test_regenerate_refused_for_completed_topic():
         client.post("/roadmap/generate/path-a", json={"session_id": session_id})
         confirmed_state = client.post("/roadmap/confirm", json={"session_id": session_id}).json()["state"]
         current_node = next(n for n in confirmed_state["roadmap"]["nodes"] if n["status"] == "available")
+        node_id = current_node["node_id"]
 
-        questions = current_node["assessment"]["questions"]
+        node = _skip_all_subtopics_and_reach_final_quiz(client, session_id, node_id, current_node)
+        assert node["assessment"] is not None
+
+        questions = node["assessment"]["questions"]
         correct_answers = [q["options"][q["correct_option_index"]] for q in questions]
         client.post(
-            f"/topic/{current_node['node_id']}/assessment/submit",
+            f"/topic/{node_id}/assessment/submit",
             json={"session_id": session_id, "answers": correct_answers},
         )
 
-        resp = client.post(f"/topic/{current_node['node_id']}/regenerate", json={"session_id": session_id})
+        resp = client.post(f"/topic/{node_id}/regenerate", json={"session_id": session_id})
         assert resp.status_code == 400
 
 
