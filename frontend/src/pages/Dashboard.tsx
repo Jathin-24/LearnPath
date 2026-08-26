@@ -1,6 +1,15 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { addRoadmapNode, getDashboard, getState, regenerateRoadmap } from "../api";
+import {
+  addRoadmapNode,
+  generateReviewQuestion,
+  getAnalytics,
+  getDashboard,
+  getDueReviews,
+  getState,
+  regenerateRoadmap,
+  submitReview,
+} from "../api";
 import BuildingIndicator from "../components/BuildingIndicator";
 import NavBar from "../components/NavBar";
 import RoadmapGraph from "../components/RoadmapGraph";
@@ -8,13 +17,14 @@ import RoadmapList from "../components/RoadmapList";
 import PageSkeleton from "../components/Skeleton";
 import SkillRadarChart from "../components/SkillRadarChart";
 import { getSessionId } from "../session";
-import type { AppState, DashboardResponse } from "../types";
+import type { AnalyticsResponse, AppState, DashboardResponse, DueReview, MCQQuestion, QuestionResult } from "../types";
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const sessionId = getSessionId();
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [state, setState] = useState<AppState | null>(null);
+  const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
   const [view, setView] = useState<"graph" | "list">("graph");
   const [regenerating, setRegenerating] = useState(false);
   const [showRegenerateBox, setShowRegenerateBox] = useState(false);
@@ -23,21 +33,63 @@ export default function Dashboard() {
   const [newTopic, setNewTopic] = useState("");
   const [savingTopic, setSavingTopic] = useState(false);
 
+  const [dueReviews, setDueReviews] = useState<DueReview[]>([]);
+  const [activeReview, setActiveReview] = useState<DueReview | null>(null);
+  const [reviewQuestion, setReviewQuestion] = useState<{ index: number; question: MCQQuestion } | null>(null);
+  const [reviewAnswer, setReviewAnswer] = useState("");
+  const [reviewResult, setReviewResult] = useState<{ correct: boolean; result: QuestionResult } | null>(null);
+  const [reviewBusy, setReviewBusy] = useState(false);
+
   useEffect(() => {
     if (!sessionId) {
       navigate("/login", { replace: true });
       return;
     }
-    Promise.all([getDashboard(sessionId), getState(sessionId)]).then(
-      ([dashboardRes, stateRes]) => {
+    Promise.all([getDashboard(sessionId), getState(sessionId), getDueReviews(sessionId)]).then(
+      ([dashboardRes, stateRes, reviewsRes]) => {
         setDashboard(dashboardRes);
         setState(stateRes.state);
+        setDueReviews(reviewsRes.due);
         if (dashboardRes.percent_complete >= 100) {
           navigate("/complete", { replace: true });
         }
       },
     );
+    getAnalytics(sessionId)
+      .then(setAnalytics)
+      .catch(() => setAnalytics(null));
   }, [sessionId, navigate]);
+
+  async function handleStartReview(review: DueReview) {
+    if (!sessionId) return;
+    setActiveReview(review);
+    setReviewQuestion(null);
+    setReviewResult(null);
+    setReviewAnswer("");
+    setReviewBusy(true);
+    try {
+      const res = await generateReviewQuestion(sessionId, review.node_id);
+      setReviewQuestion({ index: res.question_index, question: res.question });
+    } catch {
+      setActiveReview(null);
+    } finally {
+      setReviewBusy(false);
+    }
+  }
+
+  async function handleSubmitReview() {
+    if (!sessionId || !activeReview || !reviewQuestion || !reviewAnswer) return;
+    setReviewBusy(true);
+    try {
+      const res = await submitReview(sessionId, activeReview.node_id, reviewQuestion.index, reviewAnswer);
+      setReviewResult({ correct: res.correct, result: res.result });
+      setDueReviews((prev) => prev.filter((r) => r.node_id !== activeReview.node_id));
+    } catch {
+      // no-op - the question staying put communicates the failure well enough here
+    } finally {
+      setReviewBusy(false);
+    }
+  }
 
   async function handleRegenerateRoadmap() {
     if (!sessionId) return;
@@ -119,6 +171,96 @@ export default function Dashboard() {
           </div>
         )}
 
+        {dueReviews.length > 0 && !activeReview && (
+          <div className="rounded-lg border border-amber-800 bg-amber-950/30 px-4 py-3">
+            <p className="text-sm text-amber-200">
+              📌 Quick review available - a one-question recall check keeps what you've already
+              learned from fading.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {dueReviews.map((review) => (
+                <button
+                  key={review.node_id}
+                  onClick={() => handleStartReview(review)}
+                  className="rounded-full bg-amber-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-amber-500"
+                >
+                  Review "{review.topic}"
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {activeReview && (
+          <div className="rounded-xl border border-amber-800 bg-amber-950/20 p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-amber-200">
+                📌 Quick Review: {activeReview.topic}
+              </h2>
+              <button
+                onClick={() => setActiveReview(null)}
+                className="text-xs text-slate-400 hover:text-slate-200"
+              >
+                Close
+              </button>
+            </div>
+            {reviewBusy && !reviewQuestion && (
+              <BuildingIndicator label="Pulling up a recall question..." />
+            )}
+            {reviewQuestion && !reviewResult && (
+              <div className="space-y-3">
+                <p className="text-sm text-slate-200">{reviewQuestion.question.question}</p>
+                <div className="space-y-1.5">
+                  {reviewQuestion.question.options.map((option) => (
+                    <label
+                      key={option}
+                      className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition ${
+                        reviewAnswer === option
+                          ? "border-amber-500 bg-amber-500/10"
+                          : "border-slate-800 hover:border-slate-600"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="review-answer"
+                        checked={reviewAnswer === option}
+                        onChange={() => setReviewAnswer(option)}
+                        className="accent-amber-500"
+                      />
+                      {option}
+                    </label>
+                  ))}
+                </div>
+                <button
+                  onClick={handleSubmitReview}
+                  disabled={!reviewAnswer || reviewBusy}
+                  className="rounded-full bg-amber-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-amber-500 disabled:opacity-50"
+                >
+                  {reviewBusy ? "Checking..." : "Submit"}
+                </button>
+              </div>
+            )}
+            {reviewResult && (
+              <div>
+                <p className={`text-sm font-medium ${reviewResult.correct ? "text-green-400" : "text-red-400"}`}>
+                  {reviewResult.correct ? "✓ Still sharp!" : "Not quite."}
+                </p>
+                {!reviewResult.correct && (
+                  <p className="mt-1 text-xs text-slate-400">
+                    Correct answer: {reviewResult.result.correct_answer} - {reviewResult.result.explanation}
+                  </p>
+                )}
+                <button
+                  onClick={() => setActiveReview(null)}
+                  className="mt-3 rounded-full bg-slate-700 px-4 py-1.5 text-xs font-semibold hover:bg-slate-600"
+                >
+                  Done
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         <div className="overflow-hidden rounded-2xl border border-slate-800 bg-gradient-to-br from-indigo-950/60 via-slate-900 to-slate-900 p-6">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <div>
@@ -162,6 +304,47 @@ export default function Dashboard() {
             <p className="mt-2 truncate text-2xl font-bold text-white">
               {availableNode ? availableNode.topic : "-"}
             </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-4 rounded-xl border border-slate-800 bg-slate-900 p-4">
+          <div className="flex items-center gap-2">
+            <span className="text-2xl">🔥</span>
+            <div>
+              <p className="text-sm font-bold text-white">
+                {dashboard.current_streak_days} day{dashboard.current_streak_days === 1 ? "" : "s"}
+              </p>
+              <p className="text-xs text-slate-500">Best: {dashboard.longest_streak_days}</p>
+            </div>
+          </div>
+          {analytics && (
+            <div className="flex items-center gap-2 border-l border-slate-800 pl-4">
+              <span className="text-2xl">📅</span>
+              <div>
+                <p className="text-sm font-bold text-white">
+                  {analytics.topics_completed_this_week} this week
+                </p>
+                <p className="text-xs text-slate-500">
+                  {Math.round(analytics.quiz_pass_rate * 100)}% quiz pass rate
+                </p>
+              </div>
+            </div>
+          )}
+          <div className="ml-auto flex flex-wrap gap-2">
+            {dashboard.badges.map((badge) => (
+              <span
+                key={badge.id}
+                title={badge.label}
+                className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${
+                  badge.achieved
+                    ? "bg-indigo-500/20 text-indigo-300"
+                    : "bg-slate-800 text-slate-600 opacity-50"
+                }`}
+              >
+                <span>{badge.icon}</span>
+                <span className="hidden sm:inline">{badge.label}</span>
+              </span>
+            ))}
           </div>
         </div>
 

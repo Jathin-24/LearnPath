@@ -17,6 +17,7 @@ is its own route, not just an internal side effect of /chat.
 """
 
 import io
+import random
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -99,8 +100,33 @@ def _load_or_404(session_id: str) -> AppState:
     return state
 
 
+def _record_activity(state: AppState) -> None:
+    """Bumps the daily activity streak - called from every route that
+    represents genuine study activity (time spent, a subtopic/final quiz
+    submitted). Calendar-day based (UTC): multiple calls in the same day
+    are a no-op after the first, a gap of more than one day resets the
+    current streak back to 1 rather than continuing it."""
+    today = datetime.now(timezone.utc).date()
+    today_iso = today.isoformat()
+    if state.last_active_date == today_iso:
+        return
+    if state.last_active_date == (today - timedelta(days=1)).isoformat():
+        state.current_streak_days += 1
+    else:
+        state.current_streak_days = 1
+    state.longest_streak_days = max(state.longest_streak_days, state.current_streak_days)
+    state.last_active_date = today_iso
+
+
 class SessionIdRequest(BaseModel):
     session_id: str
+
+
+# Spaced-repetition schedule for /review/* routes below - a correct recall
+# answer advances to the next (longer) interval; an incorrect one resets to
+# a short 1-day interval without advancing. Past the last interval, review
+# is considered "graduated" - next_review_at is cleared.
+REVIEW_INTERVALS_DAYS = [3, 7, 14, 30]
 
 
 @app.get("/health")
@@ -837,8 +863,10 @@ def submit_assessment(node_id: str, payload: AssessmentSubmitRequest):
     if passed:
         node.status = NodeStatus.COMPLETE
         node.completed_at = datetime.now(timezone.utc)
+        node.next_review_at = datetime.now(timezone.utc) + timedelta(days=REVIEW_INTERVALS_DAYS[0])
         _unlock_next_in_sequence(state, LLMClient())
 
+    _record_activity(state)
     state.log(
         AgentName.ASSESSMENT,
         "topic_assessment_submitted",
@@ -846,6 +874,86 @@ def submit_assessment(node_id: str, payload: AssessmentSubmitRequest):
     )
     db.save_state(state)
     return {"score": score, "passed": passed, "node_status": node.status, "results": results}
+
+
+@app.get("/review/due/{session_id}")
+def get_due_reviews(session_id: str):
+    """Spaced-repetition: topics whose next_review_at has passed - see
+    REVIEW_INTERVALS_DAYS above. Set once a topic completes, pushed further
+    out each time the learner answers its recall check correctly."""
+    state = _load_or_404(session_id)
+    if state.roadmap is None:
+        return {"due": []}
+
+    now = datetime.now(timezone.utc)
+    due = []
+    for node in state.roadmap.nodes:
+        if node.next_review_at is None:
+            continue
+        review_at = node.next_review_at
+        if review_at.tzinfo is None:
+            review_at = review_at.replace(tzinfo=timezone.utc)
+        if review_at <= now:
+            due.append({"node_id": node.node_id, "topic": node.topic})
+    return {"due": due}
+
+
+@app.post("/review/{node_id}/generate")
+def generate_review_question(node_id: str, payload: SessionIdRequest):
+    """Picks one question at random from the topic's own final assessment -
+    no LLM call, the topic's already been through its checkpoint quiz.
+    Only meaningful for a COMPLETE node (see get_due_reviews)."""
+    state = _load_or_404(payload.session_id)
+    if state.roadmap is None:
+        raise HTTPException(status_code=400, detail="No roadmap for this session")
+    node = state.roadmap.get_node(node_id)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"No node {node_id!r} in this roadmap")
+    if node.assessment is None or not node.assessment.questions:
+        raise HTTPException(status_code=400, detail=f"Node {node_id!r} has no quiz to review")
+
+    question_index = random.randrange(len(node.assessment.questions))
+    return {"question_index": question_index, "question": node.assessment.questions[question_index]}
+
+
+class ReviewSubmitRequest(BaseModel):
+    session_id: str
+    question_index: int
+    answer: str
+
+
+@app.post("/review/{node_id}/submit")
+def submit_review(node_id: str, payload: ReviewSubmitRequest):
+    state = _load_or_404(payload.session_id)
+    if state.roadmap is None:
+        raise HTTPException(status_code=400, detail="No roadmap for this session")
+    node = state.roadmap.get_node(node_id)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"No node {node_id!r} in this roadmap")
+    if node.assessment is None or not (0 <= payload.question_index < len(node.assessment.questions)):
+        raise HTTPException(status_code=400, detail="Invalid review question")
+
+    question = node.assessment.questions[payload.question_index]
+    score, results = grade_mcq_batch([question], [payload.answer])
+    correct = score >= 1.0
+
+    if correct:
+        # node.review_count reviews already passed (0 the first time, since
+        # the topic's initial next_review_at - set on completion - used
+        # REVIEW_INTERVALS_DAYS[0]) - advance to the NEXT interval.
+        node.review_count += 1
+        if node.review_count >= len(REVIEW_INTERVALS_DAYS):
+            node.next_review_at = None  # graduated - no more reviews for this topic
+        else:
+            node.next_review_at = datetime.now(timezone.utc) + timedelta(
+                days=REVIEW_INTERVALS_DAYS[node.review_count]
+            )
+    else:
+        node.next_review_at = datetime.now(timezone.utc) + timedelta(days=1)
+
+    _record_activity(state)
+    db.save_state(state)
+    return {"correct": correct, "result": results[0], "next_review_at": node.next_review_at}
 
 
 class TimeSpentRequest(BaseModel):
@@ -863,6 +971,8 @@ def record_time_spent(node_id: str, payload: TimeSpentRequest):
         raise HTTPException(status_code=404, detail=f"No node {node_id!r} in this roadmap")
 
     node.time_spent_seconds += max(0, payload.seconds)
+    if payload.seconds > 0:
+        _record_activity(state)
     db.save_state(state)
     return {"time_spent_seconds": node.time_spent_seconds}
 
@@ -954,6 +1064,7 @@ def submit_subtopic_quiz(node_id: str, subtopic_id: str, payload: SubtopicQuizSu
         _unlock_next_subtopic(node)
         _maybe_generate_final_content(state, node, LLMClient())
 
+    _record_activity(state)
     state.log(
         AgentName.ASSESSMENT,
         "subtopic_quiz_submitted",
@@ -1104,6 +1215,60 @@ def analytics(session_id: str):
     }
 
 
+def _compute_badges(state: AppState) -> list[dict]:
+    """Achievement badges - entirely derived from existing state, no new
+    persisted fields needed (streak excepted, since that's genuinely
+    stateful - see _record_activity). Order is display order, most-basic
+    first."""
+    nodes = state.roadmap.nodes if state.roadmap else []
+    percent_complete = state.roadmap.percent_complete() if state.roadmap else 0.0
+    passed_subtopics = sum(
+        1 for n in nodes for s in n.subtopics if s.status == SubtopicStatus.PASSED
+    )
+    perfect_quiz = any(
+        n.assessment is not None and n.assessment.last_score == 1.0 for n in nodes
+    )
+
+    return [
+        {
+            "id": "first_topic",
+            "label": "First Topic Complete",
+            "icon": "🎯",
+            "achieved": any(n.status == NodeStatus.COMPLETE for n in nodes),
+        },
+        {
+            "id": "five_subtopics",
+            "label": "5 Sub-concepts Passed",
+            "icon": "📚",
+            "achieved": passed_subtopics >= 5,
+        },
+        {
+            "id": "perfect_quiz",
+            "label": "Perfect Quiz Score",
+            "icon": "💯",
+            "achieved": perfect_quiz,
+        },
+        {
+            "id": "streak_3",
+            "label": "3-Day Streak",
+            "icon": "🔥",
+            "achieved": state.longest_streak_days >= 3,
+        },
+        {
+            "id": "halfway",
+            "label": "Halfway There",
+            "icon": "🚀",
+            "achieved": percent_complete >= 50.0,
+        },
+        {
+            "id": "roadmap_complete",
+            "label": "Roadmap Complete",
+            "icon": "🏆",
+            "achieved": percent_complete >= 100.0 and len(nodes) > 0,
+        },
+    ]
+
+
 @app.get("/dashboard/{session_id}")
 def dashboard(session_id: str):
     state = _load_or_404(session_id)
@@ -1129,4 +1294,7 @@ def dashboard(session_id: str):
         "skill_radar": skill_radar,
         "current_node": current_node,
         "next_recommended_action": next_action,
+        "current_streak_days": state.current_streak_days,
+        "longest_streak_days": state.longest_streak_days,
+        "badges": _compute_badges(state),
     }

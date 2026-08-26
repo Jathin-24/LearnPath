@@ -1,7 +1,15 @@
 // Typed wrapper around every backend/api/main.py route the frontend uses.
 // One function per route - see docs/api_contract.md for the canonical spec.
 
-import type { AnalyticsResponse, AppState, DashboardResponse, KnowledgeEntry, QuestionResult } from "./types";
+import type {
+  AnalyticsResponse,
+  AppState,
+  DashboardResponse,
+  DueReview,
+  KnowledgeEntry,
+  MCQQuestion,
+  QuestionResult,
+} from "./types";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
@@ -322,4 +330,30 @@ export async function uploadResume(sessionId: string, file: File): Promise<{ sta
 // (<a href>), not fetched as JSON.
 export function resumeFileUrl(sessionId: string): string {
   return `${BASE_URL}/profile/resume/file/${sessionId}`;
+}
+
+export function getDueReviews(sessionId: string): Promise<{ due: DueReview[] }> {
+  return request(`/review/due/${sessionId}`);
+}
+
+export function generateReviewQuestion(
+  sessionId: string,
+  nodeId: string,
+): Promise<{ question_index: number; question: MCQQuestion }> {
+  return request(`/review/${nodeId}/generate`, {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+}
+
+export function submitReview(
+  sessionId: string,
+  nodeId: string,
+  questionIndex: number,
+  answer: string,
+): Promise<{ correct: boolean; result: QuestionResult; next_review_at: string | null }> {
+  return request(`/review/${nodeId}/submit`, {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId, question_index: questionIndex, answer }),
+  });
 }

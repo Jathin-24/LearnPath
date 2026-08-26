@@ -129,6 +129,8 @@ export interface RoadmapNode {
   estimated_days: number;
   notes: string;
   subtopics: Subtopic[];
+  next_review_at: string | null;
+  review_count: number;
 }
 
 export interface Roadmap {
@@ -164,6 +166,9 @@ export interface AppState {
   last_user_message: string | null;
   pending_quiz: MCQQuestion[];
   pending_checklist_concepts: string[];
+  current_streak_days: number;
+  longest_streak_days: number;
+  last_active_date: string | null;
 }
 
 // Not part of AppState - a separate per-user table (backend/common/db.py's
@@ -176,11 +181,26 @@ export interface KnowledgeEntry {
   created_at: string;
 }
 
+export interface Badge {
+  id: string;
+  label: string;
+  icon: string;
+  achieved: boolean;
+}
+
 export interface DashboardResponse {
   percent_complete: number;
   skill_radar: Record<string, ConceptStatus>;
   current_node: RoadmapNode | null;
   next_recommended_action: string;
+  current_streak_days: number;
+  longest_streak_days: number;
+  badges: Badge[];
+}
+
+export interface DueReview {
+  node_id: string;
+  topic: string;
 }
 
 export interface PerTopicTime {

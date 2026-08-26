@@ -266,6 +266,15 @@ class RoadmapNode(BaseModel):
     # See backend/api/main.py's PATCH /topic/{node_id}/notes.
     notes: str = ""
 
+    # Spaced-repetition review: set to completed_at + a growing interval the
+    # moment a node completes (see main.py's submit_assessment), so a quick
+    # one-question recall check resurfaces before the learner forgets it -
+    # not a full re-quiz, just one question picked from the node's own
+    # final assessment (no extra LLM call - see main.py's /review routes).
+    # None once review_count reaches its cap (spaced repetition graduates).
+    next_review_at: Optional[datetime] = None
+    review_count: int = 0
+
 
 class Roadmap(BaseModel):
     path_type: PathType
@@ -323,6 +332,15 @@ class AppState(BaseModel):
 
     conversation_history: list[ChatTurn] = Field(default_factory=list)
     progress_log: list[ProgressEvent] = Field(default_factory=list)
+
+    # Daily activity streak - bumped by main.py's _record_activity, called
+    # from every route that represents genuine study activity (time spent,
+    # a subtopic/final quiz submitted). Calendar-day based (UTC), not
+    # session-based, so multiple visits in one day don't inflate it and a
+    # single missed day resets current_streak_days back to 1.
+    current_streak_days: int = 0
+    longest_streak_days: int = 0
+    last_active_date: Optional[str] = None  # ISO date "YYYY-MM-DD", UTC
 
     # Orchestrator routing: which agent should act next. Set by whichever
     # agent/orchestrator step just ran; read by the graph's conditional edge.
