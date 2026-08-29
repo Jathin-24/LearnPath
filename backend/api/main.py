@@ -666,6 +666,32 @@ def edit_roadmap_node(node_id: str, payload: EditNodeRequest):
     return {"state": state}
 
 
+class DeleteNodeRequest(BaseModel):
+    session_id: str
+
+
+@app.post("/roadmap/node/{node_id}/delete")
+def delete_roadmap_node(node_id: str, payload: DeleteNodeRequest):
+    """Deletes a LOCKED (not-yet-started) topic entirely and strips it from
+    every other node's internal_prerequisites so nothing dangles."""
+    state = _load_or_404(payload.session_id)
+    if state.roadmap is None:
+        raise HTTPException(status_code=400, detail="No roadmap for this session")
+    node = state.roadmap.get_node(node_id)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"No node {node_id!r} in this roadmap")
+    if node.status != NodeStatus.LOCKED:
+        raise HTTPException(status_code=400, detail="Only upcoming (locked) topics can be deleted")
+
+    state.roadmap.nodes = [n for n in state.roadmap.nodes if n.node_id != node_id]
+    for other in state.roadmap.nodes:
+        if node_id in other.internal_prerequisites:
+            other.internal_prerequisites.remove(node_id)
+
+    db.save_state(state)
+    return {"state": state}
+
+
 @app.post("/topic/{node_id}/project/expand")
 def expand_project(node_id: str, payload: SessionIdRequest):
     """One extra LLM call, only on explicit request - see
@@ -1188,14 +1214,14 @@ def analytics(session_id: str):
     per_topic_time: list[dict] = []
     week_ago = datetime.now(timezone.utc) - timedelta(days=7)
 
-    # PATH_A_DATASET nodes, not "has an assessment" - the final quiz is now
-    # generated lazily (see roadmap_generator.py's generate_final_content),
-    # so a node can be mid-progress with node.assessment still None.
-    dataset_nodes = [
-        n for n in (state.roadmap.nodes if state.roadmap else []) if n.path_type == PathType.PATH_A_DATASET
-    ]
+    # All roadmap nodes regardless of path type (Path A dataset, Path B open
+    # web, or mixed). The final quiz is generated lazily (see
+    # roadmap_generator.py's generate_final_content), so a node can be
+    # mid-progress with node.assessment still None - "has an assessment" is
+    # only used below for attempt/pass rate, not the totals.
+    nodes = state.roadmap.nodes if state.roadmap else []
 
-    for node in dataset_nodes:
+    for node in nodes:
         total_time_seconds += node.time_spent_seconds
         if node.time_spent_seconds > 0:
             per_topic_time.append({"topic": node.topic, "seconds": node.time_spent_seconds})
@@ -1228,7 +1254,7 @@ def analytics(session_id: str):
         "quiz_pass_rate": round(pass_rate, 2),
         "topics_completed_this_week": completed_this_week,
         "total_time_spent_seconds": total_time_seconds,
-        "topics_total": len(dataset_nodes),
+        "topics_total": len(nodes),
         "topics_completed": completed_total,
         "average_score": round(average_score, 2),
         "per_topic_time": sorted(per_topic_time, key=lambda t: -t["seconds"]),

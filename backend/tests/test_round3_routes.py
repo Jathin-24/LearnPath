@@ -17,6 +17,7 @@ from backend.common import db
 from backend.orchestrator.state_schema import (
     AppState,
     MCQQuestion,
+    NodeStatus,
     PathType,
     ProjectAssignment,
     Roadmap,
@@ -41,6 +42,12 @@ def _create_session_with_roadmap(client) -> str:
                 node_id="python-basics",
                 topic="Python Basics",
                 path_type=PathType.PATH_A_DATASET,
+                # Unlocked directly (no /roadmap/confirm): confirm now runs
+                # ensure_subtopics (LLM) and gates the final quiz on every
+                # subtopic being PASSED/SKIPPED, which makes these route
+                # tests slow/LLM-dependent. These tests target the routes'
+                # own logic, not the unlock flow.
+                status=NodeStatus.AVAILABLE,
                 course_name="Python Basics",
                 project=ProjectAssignment(title="Build a CLI tool", description="..."),
                 assessment=TopicAssessment(
@@ -86,7 +93,6 @@ def test_record_time_spent_accumulates(client):
 
 def test_analytics_reflects_time_and_completion(client):
     session_id = _create_session_with_roadmap(client)
-    client.post("/roadmap/confirm", json={"session_id": session_id})  # unlocks python-basics
     client.post("/topic/python-basics/time", json={"session_id": session_id, "seconds": 120})
 
     before = client.get(f"/analytics/{session_id}").json()
@@ -108,3 +114,56 @@ def test_analytics_reflects_time_and_completion(client):
 def test_analytics_for_unknown_session_404s(client):
     resp = client.get(f"/analytics/{uuid.uuid4()}")
     assert resp.status_code == 404
+
+
+def test_analytics_counts_path_b_and_mixed_nodes(client):
+    session_id = client.post("/session").json()["session_id"]
+    state = db.load_state(session_id)
+    state.roadmap = Roadmap(
+        path_type=PathType.PATH_B_OPEN_WEB,
+        nodes=[
+            RoadmapNode(
+                node_id="web-node-1",
+                topic="Open-Web Topic One",
+                path_type=PathType.PATH_B_OPEN_WEB,
+                status=NodeStatus.AVAILABLE,
+                course_name=None,
+                project=ProjectAssignment(title="Build a mini site", description="..."),
+                assessment=TopicAssessment(
+                    questions=[
+                        MCQQuestion(
+                            question="What is DNS?",
+                            options=["A", "B", "C", "D"],
+                            correct_option_index=0,
+                        )
+                    ]
+                ),
+            ),
+            RoadmapNode(
+                node_id="web-node-2",
+                topic="Open-Web Topic Two",
+                path_type=PathType.PATH_B_OPEN_WEB,
+                course_name=None,
+                project=None,
+                assessment=None,
+            ),
+        ],
+    )
+    db.save_state(state)
+
+    client.post("/topic/web-node-1/time", json={"session_id": session_id, "seconds": 60})
+
+    before = client.get(f"/analytics/{session_id}").json()
+    assert before["topics_total"] == 2  # was 0 pre-fix: dataset_nodes-only
+    assert before["total_time_spent_seconds"] == 60
+    assert before["per_topic_time"][0]["topic"] == "Open-Web Topic One"
+
+    submitted = client.post(
+        "/topic/web-node-1/assessment/submit",
+        json={"session_id": session_id, "answers": ["A"]},
+    )
+    assert submitted.json()["passed"] is True
+
+    after = client.get(f"/analytics/{session_id}").json()
+    assert after["topics_completed"] == 1
+    assert after["quiz_pass_rate"] == 1.0

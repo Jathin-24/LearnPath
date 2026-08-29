@@ -1,16 +1,12 @@
 import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { importContext, uploadResume } from "../api";
+import { Button, Card, Textarea } from "../components/nb";
 import BuildingIndicator from "../components/BuildingIndicator";
 import NavBar from "../components/NavBar";
 import { useClipboardCopy } from "../hooks/useClipboardCopy";
 import { getSessionId } from "../session";
 
-// Verbatim from docs/context_export_prompt.md - what the user copies and
-// pastes into another AI tool they've already talked to about their goals.
-// Structured under fixed headings on purpose: backend/agents/knowledge_extractor.py
-// parses the pasted reply into categorized facts, and consistent headings make
-// that extraction far more reliable than free-form prose would.
 const EXPORT_PROMPT = `Based on everything you know about me from our conversations, write a \
 summary using exactly these headings. Under each one, list short bullet points (one fact per \
 bullet) - only things we've actually discussed, don't guess or make anything up. If you have \
@@ -72,9 +68,8 @@ export default function ImportContext() {
 
   async function handleFileSelected(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    e.target.value = ""; // allow re-selecting the same file later
+    e.target.value = "";
     if (!sessionId || !file) return;
-
     setUploading(true);
     setResumeError(null);
     setResumeSaved(false);
@@ -91,98 +86,88 @@ export default function ImportContext() {
   if (!sessionId) return null;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="min-h-screen bg-bg text-fg">
       <NavBar />
       <div className="mx-auto max-w-2xl px-6 py-8">
-        <h1 className="text-2xl font-bold">Import context from another AI</h1>
-        <p className="mt-2 text-sm text-slate-400">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          Import Context from Another AI
+        </h1>
+        <p className="mt-2 text-sm text-fg-secondary">
           Already talked to an AI assistant about your goals, skills, or interests? Copy the
           prompt below, paste it there, then paste the reply back here - it gives your
-          Profiler a head start. Nothing leaves your control; you copy, read, and paste it
-          yourself, and it's merged as a hint alongside what you tell us directly, not as a
-          fact that overrides you.
+          Profiler a head start.
         </p>
         {isOnboarding && (
-          <div className="mt-3 rounded-lg border border-indigo-800 bg-indigo-950/40 px-4 py-3 text-sm text-indigo-200">
-            Optional - do this now if you have context to bring in, or skip it and go straight
-            to chat.
+          <div className="mt-3 bg-purple/5 border border-purple/20 rounded-xl px-5 py-3 text-sm text-fg-secondary">
+            Optional - do this now if you have context to bring in, or skip it and go straight to chat.
           </div>
         )}
 
-        <div className="mt-6 rounded-lg border border-slate-800 bg-slate-900 p-4">
-          <p className="mb-2 text-xs font-medium text-slate-300">Step 1 — copy this prompt</p>
-          <pre className="whitespace-pre-wrap rounded-md bg-slate-950 p-3 text-xs text-slate-300">
+        <Card className="mt-6">
+          <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-2">Step 1 — Copy this prompt</p>
+          <pre className="whitespace-pre-wrap border border-border bg-bg-secondary rounded-lg p-3 text-xs font-mono text-fg-secondary">
             {EXPORT_PROMPT}
           </pre>
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
+            className="mt-2"
             onClick={() => copy(EXPORT_PROMPT)}
-            className="mt-2 rounded-md bg-slate-700 px-3 py-1 text-xs font-medium transition hover:bg-slate-600"
           >
             {copied ? "Copied!" : "Copy to clipboard"}
-          </button>
-        </div>
+          </Button>
+        </Card>
 
-        <div className="mt-6 rounded-lg border border-slate-800 bg-slate-900 p-4">
-          <p className="mb-2 text-xs font-medium text-slate-300">Step 2 — paste the reply here</p>
-          <textarea
+        <Card className="mt-6">
+          <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-2">Step 2 — Paste the reply here</p>
+          <Textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
             rows={8}
-            className="w-full rounded-md bg-slate-950 p-3 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500"
             placeholder="Paste the other AI's reply here..."
           />
-          <button
+          <Button
+            className="mt-3"
             onClick={handleSave}
             disabled={saving || !text.trim()}
-            className="mt-3 rounded-full bg-indigo-500 px-6 py-2 text-sm font-semibold transition hover:bg-indigo-400 disabled:opacity-50"
           >
             {saving ? "Saving..." : "Save"}
-          </button>
+          </Button>
           {saved && (
-            <p className="mt-2 text-sm text-green-400">
+            <p className="mt-2 text-sm font-medium text-success">
               Saved - this'll help shape your roadmap next time it's generated.
             </p>
           )}
-          {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
-        </div>
+          {error && <p className="mt-2 text-sm font-medium text-danger">{error}</p>}
+        </Card>
 
-        <div className="mt-6 rounded-lg border border-slate-800 bg-slate-900 p-4">
-          <p className="mb-2 text-xs font-medium text-slate-300">Or upload your resume</p>
-          <p className="mb-3 text-xs text-slate-500">
+        <Card className="mt-6">
+          <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-2">Or upload your resume</p>
+          <p className="mb-3 text-xs text-fg-muted">
             PDF only, for now. We'll pull skills, certifications, hobbies, and personal details
-            out to auto-fill your profile too - see the Profile page after this.
+            out to auto-fill your profile too.
           </p>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/pdf"
-            onChange={handleFileSelected}
-            className="hidden"
-          />
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="rounded-md bg-slate-700 px-3 py-1 text-xs font-medium transition hover:bg-slate-600 disabled:opacity-50"
-          >
+          <input ref={fileInputRef} type="file" accept="application/pdf" onChange={handleFileSelected} className="hidden" />
+          <Button variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
             {uploading ? "Reading resume..." : "Choose PDF"}
-          </button>
+          </Button>
           {uploading && <BuildingIndicator label="Reading your resume and building your profile..." className="mt-3" />}
           {resumeSaved && (
-            <p className="mt-2 text-sm text-green-400">
-              Resume read successfully - this'll help shape your roadmap next time it's
-              generated.
+            <p className="mt-2 text-sm font-medium text-success">
+              Resume read successfully - this'll help shape your roadmap.
             </p>
           )}
-          {resumeError && <p className="mt-2 text-sm text-red-400">{resumeError}</p>}
-        </div>
+          {resumeError && <p className="mt-2 text-sm font-medium text-danger">{resumeError}</p>}
+        </Card>
 
         {isOnboarding && (
-          <button
+          <Button
+            size="lg"
+            className="mt-6 w-full"
             onClick={() => navigate("/chat")}
-            className="mt-6 w-full rounded-full bg-indigo-500 px-6 py-3 text-sm font-semibold transition hover:bg-indigo-400"
           >
             {saved || resumeSaved ? "Continue to Chat" : "Skip for now - Continue to Chat"}
-          </button>
+          </Button>
         )}
       </div>
     </div>

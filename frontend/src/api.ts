@@ -138,6 +138,13 @@ export function editRoadmapNode(
   });
 }
 
+export function deleteRoadmapNode(sessionId: string, nodeId: string): Promise<{ state: AppState }> {
+  return request(`/roadmap/node/${nodeId}/delete`, {
+    method: "POST",
+    body: JSON.stringify({ session_id: sessionId }),
+  });
+}
+
 export function refreshWebResources(sessionId: string, nodeId: string): Promise<{ state: AppState }> {
   return request(`/topic/${nodeId}/refresh-web`, {
     method: "POST",

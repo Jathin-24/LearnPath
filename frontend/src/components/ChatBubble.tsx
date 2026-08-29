@@ -13,17 +13,17 @@ export default function ChatBubble({ role, content, agent }: Props) {
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div className="max-w-[75%]">
         {isTutor && (
-          <p className="mb-1 flex items-center gap-1 text-xs font-medium text-emerald-400">
+          <p className="mb-1 flex items-center gap-1 text-xs font-medium text-purple">
             <span>🎓</span> Topic Tutor
           </p>
         )}
         <div
-          className={`whitespace-pre-wrap rounded-2xl px-4 py-2 text-sm leading-relaxed ${
+          className={`whitespace-pre-wrap px-4 py-2.5 text-sm leading-relaxed rounded-2xl ${
             isUser
-              ? "bg-indigo-500 text-white"
+              ? "bg-fg text-white dark:bg-accent dark:text-[#0A0A0A] rounded-br-md"
               : isTutor
-                ? "border border-emerald-900/60 bg-emerald-950/30 text-slate-100"
-                : "bg-slate-800 text-slate-100"
+                ? "bg-purple/5 border border-purple/20 text-fg rounded-bl-md"
+                : "bg-bg-secondary text-fg rounded-bl-md"
           }`}
         >
           {content}

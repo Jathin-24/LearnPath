@@ -9,10 +9,13 @@ import Complete from "./pages/Complete";
 import ImportContext from "./pages/ImportContext";
 import Profile from "./pages/Profile";
 import Analytics from "./pages/Analytics";
+import { CursorFollower, ParticleField } from "./components/effects";
 
 export default function App() {
   return (
     <BrowserRouter>
+      <CursorFollower />
+      <ParticleField />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<Login />} />

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { confirmRoadmap, explainNode, getState, modifyRoadmap } from "../api";
+import { Button, Card, Textarea } from "../components/nb";
 import BuildingIndicator from "../components/BuildingIndicator";
 import NavBar from "../components/NavBar";
 import RoadmapGraph from "../components/RoadmapGraph";
@@ -34,7 +35,7 @@ export default function RoadmapReview() {
 
   if (!sessionId || !state || !state.roadmap) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white">
+      <div className="min-h-screen bg-bg text-fg">
         <NavBar hasRoadmap />
         <PageSkeleton />
       </div>
@@ -89,30 +90,29 @@ export default function RoadmapReview() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="min-h-screen bg-bg text-fg">
       <NavBar hasRoadmap />
       <div className="mx-auto max-w-5xl px-6 py-8">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold">Your Roadmap</h1>
-            <p className="mt-1 text-sm text-slate-400">
-              {roadmap.nodes.length} topics, sequenced by prerequisite. Click a topic to see
-              why it's here.
+            <h1 className="text-2xl font-semibold tracking-tight">Your Roadmap</h1>
+            <p className="mt-1 text-sm text-fg-secondary">
+              {roadmap.nodes.length} topics, sequenced by prerequisite. Click a topic to see why it's here.
             </p>
           </div>
-          <div className="flex shrink-0 gap-1 rounded-full bg-slate-900 p-1">
+          <div className="flex border border-border rounded-lg overflow-hidden">
             <button
               onClick={() => setView("graph")}
-              className={`rounded-full px-3 py-1 text-xs font-medium ${
-                view === "graph" ? "bg-indigo-500 text-white" : "text-slate-400"
+              className={`px-3 py-1 text-xs font-medium transition-colors ${
+                view === "graph" ? "bg-fg text-white dark:bg-accent dark:text-[#0A0A0A]" : "bg-surface text-fg-secondary hover:bg-bg-secondary"
               }`}
             >
               Graph
             </button>
             <button
               onClick={() => setView("list")}
-              className={`rounded-full px-3 py-1 text-xs font-medium ${
-                view === "list" ? "bg-indigo-500 text-white" : "text-slate-400"
+              className={`px-3 py-1 text-xs font-medium transition-colors border-l border-border ${
+                view === "list" ? "bg-fg text-white dark:bg-accent dark:text-[#0A0A0A]" : "bg-surface text-fg-secondary hover:bg-bg-secondary"
               }`}
             >
               List
@@ -140,70 +140,72 @@ export default function RoadmapReview() {
         )}
 
         {selected && (
-          <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900 p-4">
+          <Card className="mt-4">
+            <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-2">Topic Details</p>
             <h2 className="text-lg font-semibold">{selected.topic}</h2>
             {selected.course_summary && (
-              <p className="mt-1 text-sm text-slate-400">{selected.course_summary}</p>
+              <p className="mt-2 text-sm text-fg-secondary">{selected.course_summary}</p>
             )}
-            <p className="mt-3 text-sm text-slate-200">
-              {explaining ? "Thinking..." : explanation}
-            </p>
-          </div>
+            <div className="mt-3 p-3 rounded-lg bg-bg-secondary">
+              <p className="text-sm text-fg-secondary">
+                {explaining ? "Thinking..." : explanation}
+              </p>
+            </div>
+          </Card>
         )}
 
         {showModifyBox && (
-          <div className="mt-6 rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <label className="mb-2 block text-sm font-semibold text-slate-300">
+          <Card className="mt-6">
+            <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-2">Modify with AI</p>
+            <label className="mb-2 block text-sm font-medium">
               What would you like to change?
             </label>
-            <textarea
+            <Textarea
               value={modifyText}
               onChange={(e) => setModifyText(e.target.value)}
               rows={3}
               placeholder="e.g. 'Skip anything about mobile, add more on databases, keep it under 3 months'"
-              className="w-full resize-y rounded-md bg-slate-950 p-3 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500"
             />
             <div className="mt-3 flex items-center gap-2">
-              <button
+              <Button
                 onClick={handleModify}
                 disabled={modifying || !modifyText.trim()}
-                className="rounded-full bg-indigo-500 px-5 py-2 text-sm font-semibold transition hover:bg-indigo-400 disabled:opacity-50"
               >
                 {modifying ? "Rebuilding..." : "Rebuild Roadmap"}
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="ghost"
                 onClick={() => {
                   setShowModifyBox(false);
                   setModifyText("");
                   setModifyError(null);
                 }}
                 disabled={modifying}
-                className="rounded-full bg-slate-800 px-4 py-2 text-sm text-slate-300 transition hover:bg-slate-700"
               >
                 Cancel
-              </button>
+              </Button>
             </div>
-            {modifyError && <p className="mt-2 text-sm text-red-400">{modifyError}</p>}
-          </div>
+            {modifyError && <p className="mt-2 text-sm text-danger">{modifyError}</p>}
+          </Card>
         )}
 
         <div className="mt-6 flex flex-wrap items-center gap-3">
-          <button
+          <Button
+            size="lg"
             onClick={handleConfirm}
             disabled={confirming || modifying}
-            className="rounded-full bg-indigo-500 px-8 py-3 text-lg font-semibold transition hover:bg-indigo-400 disabled:opacity-50"
           >
-            {confirming ? "Confirming..." : "Confirm Roadmap"}
-          </button>
-          {confirmError && <p className="w-full text-sm text-red-400">{confirmError}</p>}
+            {confirming ? "Confirming..." : "Confirm Roadmap →"}
+          </Button>
+          {confirmError && <p className="w-full text-sm text-danger">{confirmError}</p>}
           {!showModifyBox && (
-            <button
+            <Button
+              variant="secondary"
               onClick={() => setShowModifyBox(true)}
               disabled={confirming || modifying}
-              className="rounded-full bg-slate-800 px-5 py-3 text-sm font-medium text-slate-300 transition hover:bg-slate-700 disabled:opacity-50"
             >
-              ✨ Modify with AI
-            </button>
+              Modify with AI ✨
+            </Button>
           )}
         </div>
       </div>

@@ -1,19 +1,20 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
 import { clearAuth, getAuth } from "../session";
+import ThemeToggle from "./ThemeToggle";
 
 const BASE_LINKS = [
   { to: "/chat", label: "Chat" },
   { to: "/profile", label: "Profile" },
 ];
 
-const ROADMAP_LINK = { to: "/dashboard", label: "Dashboard" };
+const ROADMAP_LINKS = [
+  { to: "/dashboard", label: "Dashboard" },
+  { to: "/roadmap", label: "Roadmap" },
+  { to: "/analytics", label: "Analytics" },
+];
 
 interface Props {
-  // Whether this session has a roadmap yet - controls whether "Dashboard"
-  // shows up. Nav stays deliberately small (2-3 items, not 6): a link to
-  // a page that can't do anything useful yet is clutter, not navigation.
-  // Defaults to false (the safe/smaller set) for pages that don't have
-  // this info handy rather than risk a dead-end link.
   hasRoadmap?: boolean;
 }
 
@@ -21,7 +22,7 @@ export default function NavBar({ hasRoadmap = false }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const auth = getAuth();
-  const links = hasRoadmap ? [ROADMAP_LINK, ...BASE_LINKS] : BASE_LINKS;
+  const links = hasRoadmap ? [...ROADMAP_LINKS, ...BASE_LINKS] : BASE_LINKS;
 
   function handleLogout() {
     clearAuth();
@@ -29,29 +30,67 @@ export default function NavBar({ hasRoadmap = false }: Props) {
   }
 
   return (
-    <nav className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 bg-slate-950 px-6 py-3 text-sm">
-      <div className="flex flex-wrap items-center gap-4">
-        {links.map((link) => (
-          <Link
-            key={link.to}
-            to={link.to}
-            className={`font-medium transition ${
-              location.pathname === link.to ? "text-indigo-400" : "text-slate-400 hover:text-white"
-            }`}
+    <motion.nav
+      initial={{ opacity: 0, y: -20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5 }}
+      className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-surface/90 backdrop-blur-md px-6 py-3 sticky top-0 z-50"
+    >
+      <div className="flex flex-wrap items-center gap-6">
+        <Link
+          to={hasRoadmap ? "/dashboard" : "/"}
+          className="text-base font-semibold tracking-tight"
+        >
+          <motion.span
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            className="inline-block"
           >
-            {link.label}
-          </Link>
-        ))}
+            LearnPath
+          </motion.span>
+        </Link>
+        <div className="flex items-center gap-1">
+          {links.map((link) => {
+            const isActive = location.pathname === link.to;
+            return (
+              <Link key={link.to} to={link.to}>
+                <motion.div
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  className={`
+                    px-3 py-1.5 text-xs font-medium rounded-md
+                    transition-colors duration-150
+                    ${isActive
+                      ? "bg-fg text-white dark:bg-accent dark:text-[#0A0A0A]"
+                      : "text-fg-secondary hover:text-fg hover:bg-bg-secondary"
+                    }
+                  `}
+                >
+                  {link.label}
+                </motion.div>
+              </Link>
+            );
+          })}
+        </div>
       </div>
-      <div className="flex items-center gap-3 text-slate-400">
-        {auth && <span className="hidden sm:inline">{auth.username}</span>}
-        <button
+      <div className="flex items-center gap-3">
+        <ThemeToggle />
+        {auth && (
+          <span className="hidden sm:inline text-xs text-fg-muted font-medium">
+            {auth.username}
+          </span>
+        )}
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
           onClick={handleLogout}
-          className="rounded-full bg-slate-800 px-3 py-1 text-xs font-medium transition hover:bg-slate-700"
+          className="px-3 py-1.5 text-xs font-medium text-fg-secondary
+            hover:text-fg hover:bg-bg-secondary rounded-md
+            transition-colors duration-150"
         >
           Log out
-        </button>
+        </motion.button>
       </div>
-    </nav>
+    </motion.nav>
   );
 }

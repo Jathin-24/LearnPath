@@ -12,6 +12,7 @@ import {
   submitSubtopicQuiz,
   updateTopicNotes,
 } from "../api";
+import { Button, Card, Badge, Textarea } from "../components/nb";
 import BuildingIndicator from "../components/BuildingIndicator";
 import NavBar from "../components/NavBar";
 import QuizForm from "../components/QuizForm";
@@ -30,27 +31,19 @@ function formatTimer(totalSeconds: number): string {
 
 function subtopicStatusIcon(status: Subtopic["status"]): string {
   switch (status) {
-    case "passed":
-      return "✓"; // check
-    case "skipped":
-      return "↷"; // skip arrow
-    case "available":
-      return "●"; // filled dot
-    default:
-      return "○"; // hollow dot
+    case "passed": return "✓";
+    case "skipped": return "↷";
+    case "available": return "●";
+    default: return "○";
   }
 }
 
 function subtopicStatusColor(status: Subtopic["status"]): string {
   switch (status) {
-    case "passed":
-      return "text-green-400";
-    case "skipped":
-      return "text-slate-500";
-    case "available":
-      return "text-indigo-400";
-    default:
-      return "text-slate-700";
+    case "passed": return "text-success";
+    case "skipped": return "text-fg-muted";
+    case "available": return "text-fg";
+    default: return "text-fg-muted opacity-50";
   }
 }
 
@@ -70,9 +63,7 @@ export default function TopicDetail() {
   const [explanation, setExplanation] = useState<string | null>(null);
   const [explaining, setExplaining] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<{ score: number; passed: boolean; results: QuestionResult[] } | null>(
-    null,
-  );
+  const [result, setResult] = useState<{ score: number; passed: boolean; results: QuestionResult[] } | null>(null);
   const [displaySeconds, setDisplaySeconds] = useState(0);
   const [refreshingWeb, setRefreshingWeb] = useState(false);
   const [notesText, setNotesText] = useState("");
@@ -103,9 +94,6 @@ export default function TopicDetail() {
     }).catch(() => navigate("/login", { replace: true }));
   }, [sessionId, nodeId, navigate]);
 
-  // Notes: debounce-autosaved 1s after the learner stops typing, plus a
-  // final flush on unmount/navigation - same "don't block the UI, don't
-  // lose the tail end" spirit as the study timer below.
   function handleNotesChange(value: string) {
     setNotesText(value);
     setNotesSaved(false);
@@ -114,9 +102,7 @@ export default function TopicDetail() {
       if (sessionId && nodeId) {
         updateTopicNotes(sessionId, nodeId, value)
           .then(() => setNotesSaved(true))
-          .catch(() => {
-            // best-effort - the learner can just keep typing/retry
-          });
+          .catch(() => {});
       }
     }, 1000);
   }
@@ -127,12 +113,8 @@ export default function TopicDetail() {
     };
   }, []);
 
-  // Study timer: ticks locally every second, periodically flushes the
-  // accumulated delta to the backend (best-effort - never blocks the UI),
-  // and flushes whatever's left on unmount/navigation away.
   useEffect(() => {
     if (!sessionId || !nodeId) return;
-
     secondsRef.current = 0;
     lastFlushRef.current = 0;
     setDisplaySeconds(0);
@@ -146,9 +128,7 @@ export default function TopicDetail() {
       const unsent = secondsRef.current - lastFlushRef.current;
       if (unsent > 0) {
         lastFlushRef.current = secondsRef.current;
-        recordTimeSpent(sessionId, nodeId, unsent).catch(() => {
-          // best-effort - a lost timer tick shouldn't interrupt studying
-        });
+        recordTimeSpent(sessionId, nodeId, unsent).catch(() => {});
       }
     };
 
@@ -181,9 +161,7 @@ export default function TopicDetail() {
       const { state: newState } = await refreshWebResources(sessionId, nodeId);
       setState(newState);
       setNode(newState.roadmap?.nodes.find((n) => n.node_id === nodeId) ?? null);
-    } catch {
-      // no-op - the button staying put communicates the failure well enough here
-    } finally {
+    } catch {} finally {
       setRefreshingWeb(false);
     }
   }
@@ -199,9 +177,7 @@ export default function TopicDetail() {
     try {
       const { state: newState } = await generateSubtopicQuiz(sessionId, nodeId, subtopicId);
       applyNewState(newState);
-    } catch {
-      // no-op - the button staying put communicates the failure well enough here
-    } finally {
+    } catch {} finally {
       setSubtopicBusyId(null);
     }
   }
@@ -213,9 +189,7 @@ export default function TopicDetail() {
       const res = await submitSubtopicQuiz(sessionId, nodeId, subtopicId, answers);
       setSubtopicResult({ subtopicId, score: res.score, passed: res.passed, results: res.results });
       applyNewState(res.state);
-    } catch {
-      // no-op
-    } finally {
+    } catch {} finally {
       setSubtopicSubmitting(false);
     }
   }
@@ -227,9 +201,7 @@ export default function TopicDetail() {
       const { state: newState } = await skipSubtopic(sessionId, nodeId, subtopicId);
       setSubtopicResult(null);
       applyNewState(newState);
-    } catch {
-      // no-op
-    } finally {
+    } catch {} finally {
       setSubtopicBusyId(null);
     }
   }
@@ -259,9 +231,7 @@ export default function TopicDetail() {
         );
         return { ...prev, roadmap: { ...prev.roadmap, nodes } };
       });
-    } catch {
-      // no-op - the button staying put communicates the failure well enough here
-    } finally {
+    } catch {} finally {
       setExpanding(false);
     }
   }
@@ -273,9 +243,6 @@ export default function TopicDetail() {
       const res = await submitAssessment(sessionId, nodeId, answers);
       setResult(res);
       if (res.passed) {
-        // Passing flips node.status to COMPLETE server-side, which is what
-        // reveals the project section below - refetch so that shows up
-        // immediately instead of only after the next page load.
         const { state: newState } = await getState(sessionId);
         applyNewState(newState);
       }
@@ -293,10 +260,6 @@ export default function TopicDetail() {
     node.subtopics.length === 0 ||
     node.subtopics.every((s) => s.status === "passed" || s.status === "skipped");
 
-  // The project should read as a reward, not a checklist item at the top -
-  // it only appears once the topic is actually COMPLETE (final quiz
-  // passed), and gets its longer step-by-step version pulled in
-  // automatically right then rather than waiting on a manual click.
   useEffect(() => {
     if (
       node?.status === "complete" &&
@@ -307,12 +270,11 @@ export default function TopicDetail() {
       autoExpandedRef.current = true;
       handleExpandProject();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [node?.status, node?.project?.detailed_description]);
 
   if (!state || !node) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white">
+      <div className="min-h-screen bg-bg text-fg">
         <NavBar hasRoadmap />
         <PageSkeleton />
       </div>
@@ -320,92 +282,92 @@ export default function TopicDetail() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="min-h-screen bg-bg text-fg">
       <NavBar hasRoadmap />
-      <div className="mx-auto grid max-w-5xl gap-6 px-6 py-8 md:grid-cols-[2fr_1fr]">
+      <div className="mx-auto grid max-w-6xl gap-6 px-6 py-8 md:grid-cols-[2fr_1fr]">
         <div className="space-y-6">
-          <div>
+          <Card className="animate-fade-in-up delay-100 group transition-all duration-300 group-hover:border-[var(--border-glow)]">
             <div className="flex items-center justify-between gap-3">
-              <h1 className="text-2xl font-bold">{node.topic}</h1>
-              <span
-                title="Time spent on this topic this session"
-                className="shrink-0 rounded-full bg-slate-900 px-3 py-1 text-xs font-mono text-slate-400"
-              >
-                {formatTimer(displaySeconds)}
-              </span>
+              <h1 className="text-2xl font-semibold tracking-tight font-display">{node.topic}</h1>
+              <Badge variant="default">
+                <span className="font-mono">{formatTimer(displaySeconds)}</span>
+              </Badge>
             </div>
             {node.course_summary && (
-              <p className="mt-2 text-sm text-slate-400">{node.course_summary}</p>
+              <p className="mt-2 text-sm text-fg-secondary">{node.course_summary}</p>
             )}
             {node.course_search_link && (
               <a
                 href={node.course_search_link}
                 target="_blank"
                 rel="noreferrer"
-                className="mt-2 inline-block text-sm text-indigo-400 hover:underline"
+                className="mt-2 inline-block"
               >
-                Find this course &rarr;
+                <Button variant="ghost" size="sm">Find this course →</Button>
               </a>
             )}
-          </div>
+          </Card>
 
           {node.subtopics.length > 0 && (
-            <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-slate-300">Sub-concepts</h2>
-                <span className="text-xs text-slate-500">
+            <Card className="animate-fade-in-up delay-200">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-medium text-fg-muted uppercase tracking-wider">Sub-concepts</p>
+                <Badge variant="muted">
                   {node.subtopics.filter((s) => s.status === "passed" || s.status === "skipped").length}/
                   {node.subtopics.length} done
-                </span>
+                </Badge>
               </div>
               <ul className="space-y-2">
                 {node.subtopics.map((sub) => {
                   const activeResult = subtopicResult?.subtopicId === sub.subtopic_id ? subtopicResult : null;
                   const busy = subtopicBusyId === sub.subtopic_id;
                   return (
-                    <li key={sub.subtopic_id} className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+                    <li key={sub.subtopic_id} className="border border-border rounded-lg p-3">
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex min-w-0 items-center gap-2">
-                          <span className={`shrink-0 ${subtopicStatusColor(sub.status)}`}>
+                          <span className={`shrink-0 font-bold ${subtopicStatusColor(sub.status)} ${sub.status === "available" ? "animate-subtle-pulse" : ""}`}>
                             {subtopicStatusIcon(sub.status)}
                           </span>
                           <span
-                            className={`truncate text-sm ${
+                            className={`truncate text-sm font-medium ${
                               sub.status === "locked"
-                                ? "text-slate-600"
+                                ? "opacity-30"
                                 : sub.status === "skipped"
-                                  ? "text-slate-500 line-through"
-                                  : "text-slate-200"
+                                  ? "line-through opacity-50"
+                                  : ""
                             }`}
                           >
                             {sub.name}
                           </span>
                         </div>
-                        <button
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => handleCopyTopicPrompt(sub.name, sub.subtopic_id)}
-                          title="Copy a prompt to learn this sub-concept in another AI tool"
-                          className="shrink-0 rounded-md bg-slate-800 px-2 py-0.5 text-xs text-slate-400 transition hover:bg-slate-700 hover:text-slate-200"
                         >
-                          {copiedSubtopicId === sub.subtopic_id ? "Copied!" : "Copy prompt"}
-                        </button>
+                          {copiedSubtopicId === sub.subtopic_id ? "Copied!" : "Copy Prompt"}
+                        </Button>
                       </div>
 
                       {sub.status === "available" && !sub.quiz && !activeResult && (
                         <div className="mt-2.5 flex items-center gap-2">
-                          <button
+                          <Button
+                            size="sm"
                             onClick={() => handleGenerateSubtopicQuiz(sub.subtopic_id)}
                             disabled={busy}
-                            className="rounded-full bg-indigo-500 px-4 py-1.5 text-xs font-semibold transition hover:bg-indigo-400 disabled:opacity-50"
+                            className="hover:shadow-[0_0_20px_rgba(16,185,129,0.4)] hover:scale-[1.02] transition-all duration-300"
                           >
-                            {busy ? "Preparing quiz..." : "Done Learning →"}
-                          </button>
-                          <button
+                            {busy ? "Preparing quiz..." : "Done learning →"}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             onClick={() => handleSkipSubtopic(sub.subtopic_id)}
                             disabled={busy}
-                            className="rounded-full bg-slate-800 px-3 py-1.5 text-xs text-slate-400 transition hover:bg-slate-700 disabled:opacity-50"
+                            className="hover:shadow-[0_0_20px_rgba(134,142,150,0.3)] hover:scale-[1.02] transition-all duration-300"
                           >
                             Skip
-                          </button>
+                          </Button>
                         </div>
                       )}
                       {busy && !sub.quiz && (
@@ -425,28 +387,30 @@ export default function TopicDetail() {
 
                       {activeResult && (
                         <div
-                          className={`mt-3 rounded-lg border p-3 ${
+                          className={`mt-3 p-3 rounded-lg border ${
                             activeResult.passed
-                              ? "animate-celebrate border-green-700 bg-green-900/20"
-                              : "border-red-700 bg-red-900/20"
+                              ? "animate-celebrate bg-success/10 border-success/20"
+                              : "bg-danger/10 border-danger/20"
                           }`}
                         >
                           <p className="text-sm font-medium">
                             {activeResult.passed ? "Passed!" : "Not quite - try again."}
                           </p>
-                          <p className="text-xs text-slate-400">Score: {Math.round(activeResult.score * 100)}%</p>
+                          <p className="text-xs text-fg-secondary">Score: {Math.round(activeResult.score * 100)}%</p>
                           {activeResult.results.length > 0 && (
                             <div className="mt-2">
                               <QuizResults results={activeResult.results} />
                             </div>
                           )}
                           {!activeResult.passed && (
-                            <button
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="mt-2"
                               onClick={() => setSubtopicResult(null)}
-                              className="mt-2 rounded-full bg-slate-700 px-4 py-1.5 text-xs font-semibold hover:bg-slate-600"
                             >
-                              Try Again
-                            </button>
+                              Try again
+                            </Button>
                           )}
                         </div>
                       )}
@@ -454,21 +418,21 @@ export default function TopicDetail() {
                   );
                 })}
               </ul>
-            </div>
+            </Card>
           )}
 
           {node.cheat_sheet_notes && (
-            <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-              <h2 className="text-sm font-semibold text-slate-300">Study Notes</h2>
-              <p className="mt-2 whitespace-pre-wrap text-sm text-slate-300">
+            <Card>
+              <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-2">Study Notes</p>
+              <p className="whitespace-pre-wrap text-sm text-fg-secondary">
                 {node.cheat_sheet_notes}
               </p>
-            </div>
+            </Card>
           )}
 
           {(node.web_sources.length > 0 || node.youtube_links.length > 0) && (
-            <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-              <h2 className="mb-3 text-sm font-semibold text-slate-300">Resources</h2>
+            <Card className="animate-fade-in-up delay-400">
+              <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-3">Resources</p>
               <div className="space-y-2">
                 {node.web_sources.map((r) => (
                   <a
@@ -476,11 +440,11 @@ export default function TopicDetail() {
                     href={r.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="block rounded-lg border border-slate-800 bg-slate-950/50 p-3 transition hover:border-indigo-600"
+                    className="block border border-border rounded-lg p-3 transition-transform duration-300 hover:border-border-strong hover:scale-[1.02]"
                   >
-                    <p className="truncate text-sm font-medium text-slate-200">🔗 {r.title}</p>
-                    {r.snippet && <p className="mt-1 line-clamp-2 text-xs text-slate-500">{r.snippet}</p>}
-                    <p className="mt-1 truncate text-xs text-indigo-400">
+                    <p className="truncate text-sm font-medium">🔗 {r.title}</p>
+                    {r.snippet && <p className="mt-1 line-clamp-2 text-xs text-fg-muted">{r.snippet}</p>}
+                    <p className="mt-1 truncate text-xs text-fg-secondary font-medium">
                       {(() => { try { return new URL(r.url).hostname.replace("www.", ""); } catch { return r.url; } })()}
                     </p>
                   </a>
@@ -491,73 +455,75 @@ export default function TopicDetail() {
                     href={r.url}
                     target="_blank"
                     rel="noreferrer"
-                    className="block rounded-lg border border-red-900/60 bg-red-950/10 p-3 transition hover:border-red-600"
+                    className="block border border-pink/20 bg-pink/5 rounded-lg p-3 transition-transform duration-300 hover:border-pink/30 hover:scale-[1.02]"
                   >
-                    <p className="truncate text-sm font-medium text-red-200">▶ {r.title}</p>
-                    {r.snippet && <p className="mt-1 line-clamp-2 text-xs text-red-300/70">{r.snippet}</p>}
+                    <p className="truncate text-sm font-medium text-pink">▶ {r.title}</p>
+                    {r.snippet && <p className="mt-1 line-clamp-2 text-xs text-fg-muted">{r.snippet}</p>}
                   </a>
                 ))}
               </div>
-            </div>
+            </Card>
           )}
 
-          <button
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={handleRefreshWeb}
             disabled={refreshingWeb}
-            className="rounded-md bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-slate-700 disabled:opacity-50"
           >
             {refreshingWeb ? "Searching..." : "🔎 Find more resources"}
-          </button>
+          </Button>
 
           {node.subtopics.length > 0 && !allSubtopicsResolved && (
-            <div className="rounded-xl border border-dashed border-slate-700 bg-slate-900/40 p-4 opacity-70">
+            <Card className="opacity-60">
               <div className="flex items-center gap-2">
-                <span className="text-slate-500">🔒</span>
-                <h2 className="text-sm font-semibold text-slate-400">Final Quiz</h2>
+                <span className="text-lg">🔒</span>
+                <p className="text-xs font-medium text-fg-muted uppercase tracking-wider">Final Quiz</p>
               </div>
-              <p className="mt-1.5 text-xs text-slate-500">
+              <p className="mt-1.5 text-xs text-fg-muted">
                 Unlocks once every sub-concept above is done ({resolvedSubtopicCount}/
                 {node.subtopics.length} so far).
               </p>
-            </div>
+            </Card>
           )}
 
           {node.assessment && allSubtopicsResolved && (
             <div>
-              <h2 className="mb-3 text-sm font-semibold text-slate-300">Final Quiz</h2>
+              <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-3">Final Quiz</p>
               {result ? (
-                <div
-                  className={`rounded-xl border p-4 ${
+                <Card
+                  className={`${
                     result.passed
-                      ? "animate-celebrate border-green-700 bg-green-900/30"
-                      : "border-red-700 bg-red-900/30"
+                      ? "animate-celebrate bg-success/10 border-success/20"
+                      : "bg-danger/10 border-danger/20"
                   }`}
                 >
-                  <p className="font-medium">
+                  <p className="font-semibold">
                     {result.passed ? "🎉 Passed!" : "Not quite there yet."}
                   </p>
-                  <p className="text-sm text-slate-300">Score: {Math.round(result.score * 100)}%</p>
+                  <p className="text-sm text-fg-secondary">Score: {Math.round(result.score * 100)}%</p>
                   {result.results.length > 0 && (
                     <div className="mt-3">
                       <QuizResults results={result.results} />
                     </div>
                   )}
                   {result.passed ? (
-                    <button
+                    <Button
+                      className="mt-3"
                       onClick={() => navigate("/dashboard")}
-                      className="mt-3 rounded-full bg-indigo-500 px-5 py-2 text-sm font-semibold hover:bg-indigo-400"
                     >
                       Back to Dashboard
-                    </button>
+                    </Button>
                   ) : (
-                    <button
+                    <Button
+                      variant="ghost"
+                      className="mt-3"
                       onClick={() => setResult(null)}
-                      className="mt-3 rounded-full bg-slate-700 px-5 py-2 text-sm font-semibold hover:bg-slate-600"
                     >
-                      Try Again
-                    </button>
+                      Try again
+                    </Button>
                   )}
-                </div>
+                </Card>
               ) : (
                 <QuizForm
                   questions={node.assessment.questions}
@@ -569,31 +535,30 @@ export default function TopicDetail() {
           )}
 
           {node.status !== "complete" && (
-            <details className="group rounded-xl border border-dashed border-slate-700 bg-slate-900/40 opacity-70">
-              <summary className="flex cursor-pointer list-none items-center gap-2 p-4 text-sm font-semibold text-slate-400">
-                <span className="text-slate-500">🔒</span>
-                <span>Project</span>
-                <span className="ml-auto text-xs text-slate-600 transition group-open:rotate-180">▾</span>
-              </summary>
-              <p className="px-4 pb-4 text-xs text-slate-500">
+            <Card className="opacity-60">
+              <div className="flex items-center gap-2">
+                <span>🔒</span>
+                <p className="text-xs font-medium text-fg-muted uppercase tracking-wider">Project</p>
+              </div>
+              <p className="mt-1.5 text-xs text-fg-muted">
                 Pass this topic's final quiz to unlock a hands-on project built around what you
                 just learned.
               </p>
-            </details>
+            </Card>
           )}
 
           {node.status === "complete" && node.project && (
-            <div className="rounded-xl border border-indigo-800 bg-indigo-950/20 p-4">
-              <h2 className="text-sm font-semibold text-indigo-300">🏆 Project</h2>
-              <h3 className="mt-1 font-medium">{node.project.title}</h3>
-              <p className="mt-1 text-sm text-slate-400">{node.project.description}</p>
+            <Card>
+              <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-2">🏆 Project</p>
+              <h3 className="font-semibold">{node.project.title}</h3>
+              <p className="mt-1 text-sm text-fg-secondary">{node.project.description}</p>
               {node.project.success_criteria.length > 0 && (
-                <div className="mt-3 border-t border-slate-800 pt-3">
-                  <p className="text-xs font-medium text-slate-400">Success looks like:</p>
-                  <ul className="mt-1.5 space-y-1">
+                <div className="mt-3 border-t border-border pt-3">
+                  <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-1">Success looks like:</p>
+                  <ul className="space-y-1">
                     {node.project.success_criteria.map((c, i) => (
-                      <li key={i} className="flex items-start gap-1.5 text-xs text-slate-300">
-                        <span className="mt-0.5 text-indigo-400">✓</span>
+                      <li key={i} className="flex items-start gap-1.5 text-xs">
+                        <span className="mt-0.5 text-success font-bold">✓</span>
                         <span>{c}</span>
                       </li>
                     ))}
@@ -601,55 +566,57 @@ export default function TopicDetail() {
                 </div>
               )}
               {node.project.detailed_description ? (
-                <div className="mt-3 border-t border-slate-800 pt-3">
-                  <p className="text-xs font-medium text-slate-400">Step-by-step:</p>
-                  <p className="mt-1.5 whitespace-pre-wrap text-xs text-slate-300">
+                <div className="mt-3 border-t border-border pt-3">
+                  <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-1">Step-by-step:</p>
+                  <p className="whitespace-pre-wrap text-xs text-fg-secondary">
                     {node.project.detailed_description}
                   </p>
                 </div>
               ) : expanding ? (
                 <BuildingIndicator label="Writing out the full step-by-step version..." className="mt-3" />
               ) : (
-                <button
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="mt-3"
                   onClick={handleExpandProject}
-                  className="mt-3 rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-700"
                 >
                   Make this more detailed
-                </button>
+                </Button>
               )}
-            </div>
+            </Card>
           )}
         </div>
 
         <div className="space-y-6">
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <h2 className="mb-2 text-sm font-semibold text-slate-300">Why this topic?</h2>
+          <Card>
+            <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-2">Why this topic?</p>
             {explanation ? (
-              <p className="text-sm text-slate-200">{explanation}</p>
+              <p className="text-sm text-fg-secondary">{explanation}</p>
             ) : (
-              <button
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={handleExplain}
                 disabled={explaining}
-                className="rounded-full bg-slate-800 px-4 py-2 text-sm font-medium hover:bg-slate-700 disabled:opacity-50"
               >
                 {explaining ? "Thinking..." : "Why this?"}
-              </button>
+              </Button>
             )}
-          </div>
+          </Card>
 
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-slate-300">My Notes</h2>
-              <span className="text-xs text-slate-500">{notesSaved ? "Saved" : "Saving..."}</span>
+          <Card className="animate-fade-in-up delay-500">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-medium text-fg-muted uppercase tracking-wider">My Notes</p>
+              <span className="text-xs text-fg-muted">{notesSaved ? "Saved" : "Saving..."}</span>
             </div>
-            <textarea
+            <Textarea
               value={notesText}
               onChange={(e) => handleNotesChange(e.target.value)}
               rows={8}
               placeholder="Jot down anything that clicked for you here - only you can see this."
-              className="w-full resize-y rounded-md bg-slate-950 p-3 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500"
             />
-          </div>
+          </Card>
         </div>
       </div>
     </div>

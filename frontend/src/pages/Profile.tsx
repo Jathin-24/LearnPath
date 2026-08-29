@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { motion, AnimatePresence, type Variants } from "framer-motion";
 import {
   deleteKnowledgeEntry,
   getKnowledge,
@@ -9,6 +10,7 @@ import {
   updateProfile,
   uploadResume,
 } from "../api";
+import { Button, Card, Input, Textarea, Badge } from "../components/nb";
 import BuildingIndicator from "../components/BuildingIndicator";
 import NavBar from "../components/NavBar";
 import PageSkeleton from "../components/Skeleton";
@@ -25,35 +27,26 @@ const CATEGORY_LABEL: Record<string, string> = {
   other: "Other",
 };
 
-const STATUS_COLOR: Record<string, string> = {
-  known: "text-green-400",
-  learned: "text-green-400",
-  claimed_unconfirmed: "text-yellow-400",
-  gap: "text-red-400",
-};
-
 function toCommaList(items: string[]): string {
   return items.join(", ");
 }
 
 function fromCommaList(value: string): string[] {
-  return value
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  return value.split(",").map((s) => s.trim()).filter(Boolean);
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <label className="mb-1 block text-xs font-medium text-slate-300">{label}</label>
-      {children}
-    </div>
-  );
-}
+const containerVariants: Variants = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { staggerChildren: 0.08, delayChildren: 0.1 },
+  },
+};
 
-const inputClass =
-  "w-full rounded-md bg-slate-950 p-2 text-sm outline-none focus:ring-2 focus:ring-indigo-500";
+const itemVariants: Variants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" } },
+};
 
 export default function Profile() {
   const navigate = useNavigate();
@@ -62,7 +55,6 @@ export default function Profile() {
   const sessionId = getSessionId();
   const [state, setState] = useState<AppState | null>(null);
 
-  // Personal details
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [age, setAge] = useState("");
@@ -71,7 +63,6 @@ export default function Profile() {
   const [studentPercentage, setStudentPercentage] = useState("");
   const [professionalRole, setProfessionalRole] = useState("");
 
-  // Learning profile
   const [goal, setGoal] = useState("");
   const [timeline, setTimeline] = useState("");
   const [interests, setInterests] = useState("");
@@ -92,7 +83,6 @@ export default function Profile() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [restarting, setRestarting] = useState(false);
-
   const [knowledge, setKnowledge] = useState<KnowledgeEntry[]>([]);
 
   useEffect(() => {
@@ -130,11 +120,7 @@ export default function Profile() {
     try {
       await deleteKnowledgeEntry(sessionId, entryId);
     } catch {
-      // Best-effort - re-fetch to recover from a failed delete rather than
-      // leaving the UI silently out of sync with the database.
-      getKnowledge(sessionId)
-        .then(({ entries }) => setKnowledge(entries))
-        .catch(() => {});
+      getKnowledge(sessionId).then(({ entries }) => setKnowledge(entries)).catch(() => {});
     }
   }
 
@@ -147,29 +133,18 @@ export default function Profile() {
     setSaved(false);
     try {
       const { state } = await updateProfile(sessionId, {
-        name,
-        email,
-        age: age ? Number(age) : undefined,
-        gender,
+        name, email, age: age ? Number(age) : undefined, gender,
         occupation_status: occupation || undefined,
-        student_percentage: studentPercentage,
-        professional_role: professionalRole,
-        goal,
-        timeline,
-        interests: fromCommaList(interests),
+        student_percentage: studentPercentage, professional_role: professionalRole,
+        goal, timeline, interests: fromCommaList(interests),
         stated_known_skills: fromCommaList(knownSkills),
         prior_learning_history: fromCommaList(priorHistory),
-        hobbies: fromCommaList(hobbies),
-        certifications: fromCommaList(certifications),
+        hobbies: fromCommaList(hobbies), certifications: fromCommaList(certifications),
         extra_info: extraInfo,
       });
       setState(state);
       setSaved(true);
-      if (continueAfter) {
-        // New users see the "import context" step once, right after the
-        // required-fields gate, before landing in chat.
-        navigate("/import?onboarding=1");
-      }
+      if (continueAfter) navigate("/import?onboarding=1");
     } catch {
       setError("Couldn't save your profile - try again.");
     } finally {
@@ -188,13 +163,8 @@ export default function Profile() {
     try {
       const result = await uploadResume(sessionId, file);
       const newState = result.state;
-      console.log("[resume upload] response:", result);
-      console.log("[resume upload] extracted profile:", newState.learner_profile);
       setState(newState);
-      // Auto-fill the form from whatever the resume extraction newly
-      // populated - fills blanks only, so anything already typed in stays.
       const p = newState.learner_profile;
-      console.log("[resume merge] name:", p.name, "email:", p.email, "skills:", p.stated_known_skills);
       setName((prev) => prev || p.name || "");
       setEmail((prev) => prev || p.email || "");
       setAge((prev) => prev || (p.age ? String(p.age) : ""));
@@ -209,9 +179,7 @@ export default function Profile() {
       setCertifications(toCommaList(p.certifications));
       setExtraInfo((prev) => prev || p.extra_info || "");
       setResumeSaved(true);
-      if (result.extraction_warning) {
-        setExtractionWarning(result.extraction_warning);
-      }
+      if (result.extraction_warning) setExtractionWarning(result.extraction_warning);
     } catch {
       setResumeError("Couldn't read that PDF - try a different file.");
     } finally {
@@ -222,8 +190,7 @@ export default function Profile() {
   async function handleStartNewGoal() {
     if (!sessionId || restarting) return;
     const confirmed = window.confirm(
-      "Start a new goal? This clears your current roadmap and skill assessment - your name/email/" +
-        "age/gender/occupation stay the same. This can't be undone.",
+      "Start a new goal? This clears your current roadmap and skill assessment - your name/email/age/gender/occupation stay the same. This can't be undone.",
     );
     if (!confirmed) return;
     setRestarting(true);
@@ -237,7 +204,7 @@ export default function Profile() {
 
   if (!sessionId || !state) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white">
+      <div className="min-h-screen bg-bg text-fg">
         <NavBar />
         <PageSkeleton />
       </div>
@@ -247,24 +214,20 @@ export default function Profile() {
   const assessments = state.skill_gap_map.assessments;
 
   const resumeSection = (
-    <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-      <h2 className="mb-2 text-sm font-semibold text-slate-300">Resume</h2>
-      <p className="mb-3 text-xs text-slate-500">
+    <Card>
+      <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-2">Resume</p>
+      <p className="mb-3 text-xs text-fg-muted">
         {isRequired
-          ? "Upload a PDF and we'll auto-fill as much of the form below as we can find - " +
-            "name, age, gender, skills, certifications, hobbies, and more. Anything it can't " +
-            "find, just fill in yourself."
-          : "PDF only. We'll pull skills, certifications, hobbies, and other details out to " +
-            "auto-fill your profile below, and use it to personalize your roadmap and chats."}
+          ? "Upload a PDF and we'll auto-fill as much of the form below as we can find."
+          : "PDF only. We'll pull skills, certifications, hobbies, and other details out to auto-fill your profile."}
       </p>
       {state.learner_profile.resume_filename && (
-        <div className="mb-3 flex items-center justify-between rounded-md bg-slate-950 px-3 py-2 text-xs">
-          <span className="truncate text-slate-300">
+        <div className="mb-3 flex items-center justify-between border border-border bg-bg-secondary rounded-lg px-3 py-2 text-xs">
+          <span className="truncate font-medium">
             📄 {state.learner_profile.resume_filename}
             {state.learner_profile.resume_uploaded_at && (
-              <span className="text-slate-500">
-                {" "}
-                · uploaded {new Date(state.learner_profile.resume_uploaded_at).toLocaleDateString()}
+              <span className="text-fg-muted">
+                {" "}· uploaded {new Date(state.learner_profile.resume_uploaded_at).toLocaleDateString()}
               </span>
             )}
           </span>
@@ -272,294 +235,245 @@ export default function Profile() {
             href={resumeFileUrl(sessionId)}
             target="_blank"
             rel="noreferrer"
-            className="shrink-0 text-indigo-400 hover:underline"
+            className="shrink-0 text-fg font-medium hover:underline"
           >
-            View PDF
+            VIEW PDF
           </a>
         </div>
       )}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="application/pdf"
-        onChange={handleFileSelected}
-        className="hidden"
-      />
-      <button
-        onClick={() => fileInputRef.current?.click()}
-        disabled={uploading}
-        className="rounded-md bg-slate-700 px-3 py-1 text-xs font-medium transition hover:bg-slate-600 disabled:opacity-50"
-      >
-        {uploading
-          ? "Reading resume..."
-          : state.learner_profile.resume_filename
-            ? "Upload a new PDF"
-            : "Choose PDF"}
-      </button>
-      {uploading && (
-        <BuildingIndicator label="Reading your resume and building your profile..." className="mt-3" />
-      )}
+      <input ref={fileInputRef} type="file" accept="application/pdf" onChange={handleFileSelected} className="hidden" />
+      <Button variant="secondary" size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+        {uploading ? "Reading resume..." : state.learner_profile.resume_filename ? "Upload a new PDF" : "Choose PDF"}
+      </Button>
+      {uploading && <BuildingIndicator label="Reading your resume and building your profile..." className="mt-3" />}
       {resumeSaved && !uploading && !extractionWarning && (
-        <p className="mt-2 text-sm text-green-400">Resume read successfully - fields below were auto-filled.</p>
+        <p className="mt-2 text-sm font-medium text-success">Resume read successfully - fields below were auto-filled.</p>
       )}
-      {extractionWarning && !uploading && (
-        <p className="mt-2 text-sm text-yellow-400">{extractionWarning}</p>
-      )}
-      {resumeError && <p className="mt-2 text-sm text-red-400">{resumeError}</p>}
-    </div>
+      {extractionWarning && !uploading && <p className="mt-2 text-sm font-medium text-warning">{extractionWarning}</p>}
+      {resumeError && <p className="mt-2 text-sm font-medium text-danger">{resumeError}</p>}
+    </Card>
   );
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="min-h-screen bg-bg text-fg">
       <NavBar hasRoadmap={!!state.roadmap} />
-      <div className="mx-auto max-w-2xl space-y-6 px-6 py-8">
-        <div>
-          <h1 className="text-2xl font-bold">Your Profile</h1>
-          <p className="mt-2 text-sm text-slate-400">
-            This is what we've gathered about you so far. Fix anything that's wrong - it
-            shapes your roadmap.
+      <motion.div
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+        className="mx-auto max-w-2xl space-y-6 px-6 py-8"
+      >
+        <motion.div variants={itemVariants}>
+          <h1 className="text-2xl font-semibold tracking-tight">Your Profile</h1>
+          <p className="mt-2 text-sm text-fg-secondary">
+            This is what we've gathered about you so far. Fix anything that's wrong - it shapes your roadmap.
           </p>
           {isRequired && (
-            <div className="mt-3 rounded-lg border border-indigo-800 bg-indigo-950/40 px-4 py-3 text-sm text-indigo-200">
-              Welcome! Fill in a few required details before we get started - or upload your
-              resume below and we'll fill in what we can for you.
-            </div>
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mt-3 bg-purple/5 border border-purple/20 rounded-xl px-5 py-3 text-sm text-fg-secondary"
+            >
+              Welcome! Fill in a few required details before we get started - or upload your resume below.
+            </motion.div>
           )}
-        </div>
+        </motion.div>
 
-        {isRequired && resumeSection}
+        {isRequired && <motion.div variants={itemVariants}>{resumeSection}</motion.div>}
 
-        <div className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-4">
-          <h2 className="text-sm font-semibold text-slate-300">Personal Details</h2>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Name *">
-              <input value={name} onChange={(e) => setName(e.target.value)} className={inputClass} />
-            </Field>
-            <Field label="Email *">
-              <input
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                type="email"
-                className={inputClass}
-              />
-            </Field>
-            <Field label="Age *">
-              <input
-                value={age}
-                onChange={(e) => setAge(e.target.value)}
-                type="number"
-                min={1}
-                className={inputClass}
-              />
-            </Field>
-            <Field label="Gender *">
-              <input value={gender} onChange={(e) => setGender(e.target.value)} className={inputClass} />
-            </Field>
-            <Field label="Currently *">
-              <select
-                value={occupation}
-                onChange={(e) => setOccupation(e.target.value as OccupationStatus)}
-                className={inputClass}
+        <motion.div variants={itemVariants}>
+          <Card>
+            <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-3">Personal Details</p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Input label="Name *" value={name} onChange={(e) => setName(e.target.value)} />
+              <Input label="Email *" value={email} onChange={(e) => setEmail(e.target.value)} type="email" />
+              <Input label="Age *" value={age} onChange={(e) => setAge(e.target.value)} type="number" min={1} />
+              <Input label="Gender *" value={gender} onChange={(e) => setGender(e.target.value)} />
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-medium text-fg-secondary">Currently *</label>
+                <select
+                  value={occupation}
+                  onChange={(e) => setOccupation(e.target.value as OccupationStatus)}
+                  className="w-full px-3.5 py-2.5 border border-border rounded-lg bg-surface text-fg text-sm outline-none transition-all duration-150 focus:border-fg/30"
+                >
+                  <option value="">Select...</option>
+                  <option value="student">Student</option>
+                  <option value="working_professional">Working Professional</option>
+                </select>
+              </div>
+              {occupation === "student" && (
+                <Input label="Percentage / marks (optional)" value={studentPercentage} onChange={(e) => setStudentPercentage(e.target.value)} />
+              )}
+              {occupation === "working_professional" && (
+                <Input label="Current role (optional)" value={professionalRole} onChange={(e) => setProfessionalRole(e.target.value)} />
+              )}
+            </div>
+          </Card>
+        </motion.div>
+
+        <motion.div variants={itemVariants}>
+          <Card>
+            <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-3">Learning Profile</p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Input label="Goal" value={goal} onChange={(e) => setGoal(e.target.value)} />
+              <Input label="Timeline" value={timeline} onChange={(e) => setTimeline(e.target.value)} />
+              <Input label="Interests (comma-separated)" value={interests} onChange={(e) => setInterests(e.target.value)} />
+              <Input label="Known skills (comma-separated)" value={knownSkills} onChange={(e) => setKnownSkills(e.target.value)} />
+              <Input label="Prior learning history (comma-separated)" value={priorHistory} onChange={(e) => setPriorHistory(e.target.value)} />
+              <Input label="Hobbies (comma-separated)" value={hobbies} onChange={(e) => setHobbies(e.target.value)} />
+            </div>
+            <Input label="Certifications (comma-separated)" value={certifications} onChange={(e) => setCertifications(e.target.value)} className="mt-4" />
+          </Card>
+        </motion.div>
+
+        <motion.div variants={itemVariants}>
+          <Card>
+            <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-2">Extra Information</p>
+            <p className="text-xs text-fg-muted mb-2">
+              Anything else worth knowing - awards, publications, languages, volunteer work, etc.
+            </p>
+            <Textarea
+              value={extraInfo}
+              onChange={(e) => setExtraInfo(e.target.value)}
+              rows={4}
+              placeholder="e.g. Fluent in Spanish, published two open-source npm packages..."
+            />
+          </Card>
+        </motion.div>
+
+        <motion.div variants={itemVariants}>
+          {isRequired ? (
+            <Button
+              size="lg"
+              className="w-full"
+              onClick={() => handleSave(true)}
+              disabled={saving || !requiredFieldsFilled}
+            >
+              {saving ? "Saving..." : "Continue to Chat →"}
+            </Button>
+          ) : (
+            <Button onClick={() => handleSave(false)} disabled={saving}>
+              {saving ? "Saving..." : "Save"}
+            </Button>
+          )}
+          <AnimatePresence>
+            {saved && !isRequired && (
+              <motion.p
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="text-sm font-medium text-success mt-2"
               >
-                <option value="">Select...</option>
-                <option value="student">Student</option>
-                <option value="working_professional">Working Professional</option>
-              </select>
-            </Field>
-            {occupation === "student" && (
-              <Field label="Percentage / marks (optional)">
-                <input
-                  value={studentPercentage}
-                  onChange={(e) => setStudentPercentage(e.target.value)}
-                  className={inputClass}
-                />
-              </Field>
+                Saved.
+              </motion.p>
             )}
-            {occupation === "working_professional" && (
-              <Field label="Current role (optional)">
-                <input
-                  value={professionalRole}
-                  onChange={(e) => setProfessionalRole(e.target.value)}
-                  className={inputClass}
-                />
-              </Field>
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-4 rounded-lg border border-slate-800 bg-slate-900 p-4">
-          <h2 className="text-sm font-semibold text-slate-300">Learning Profile</h2>
-          <Field label="Goal">
-            <input value={goal} onChange={(e) => setGoal(e.target.value)} className={inputClass} />
-          </Field>
-          <Field label="Timeline">
-            <input value={timeline} onChange={(e) => setTimeline(e.target.value)} className={inputClass} />
-          </Field>
-          <Field label="Interests (comma-separated)">
-            <input value={interests} onChange={(e) => setInterests(e.target.value)} className={inputClass} />
-          </Field>
-          <Field label="Known skills (comma-separated)">
-            <input
-              value={knownSkills}
-              onChange={(e) => setKnownSkills(e.target.value)}
-              className={inputClass}
-            />
-          </Field>
-          <Field label="Prior learning history (comma-separated)">
-            <input
-              value={priorHistory}
-              onChange={(e) => setPriorHistory(e.target.value)}
-              className={inputClass}
-            />
-          </Field>
-          <Field label="Hobbies (comma-separated)">
-            <input value={hobbies} onChange={(e) => setHobbies(e.target.value)} className={inputClass} />
-          </Field>
-          <Field label="Certifications (comma-separated)">
-            <input
-              value={certifications}
-              onChange={(e) => setCertifications(e.target.value)}
-              className={inputClass}
-            />
-          </Field>
-        </div>
-
-        <div className="space-y-2 rounded-lg border border-slate-800 bg-slate-900 p-4">
-          <h2 className="text-sm font-semibold text-slate-300">Extra Information</h2>
-          <p className="text-xs text-slate-500">
-            Anything else worth knowing that doesn't fit the fields above - awards,
-            publications, languages, volunteer work, open-source contributions, etc. Pulled
-            automatically from your resume where possible; edit freely. This feeds into how
-            your roadmap and chats are personalized, same as everything else here.
-          </p>
-          <textarea
-            value={extraInfo}
-            onChange={(e) => setExtraInfo(e.target.value)}
-            rows={4}
-            placeholder="e.g. Fluent in Spanish, published two open-source npm packages, volunteer coding tutor on weekends..."
-            className="w-full resize-y rounded-md bg-slate-950 p-2 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-        </div>
-
-        {isRequired ? (
-          <button
-            onClick={() => handleSave(true)}
-            disabled={saving || !requiredFieldsFilled}
-            className="w-full rounded-full bg-indigo-500 px-6 py-3 text-sm font-semibold transition hover:bg-indigo-400 disabled:opacity-50"
-          >
-            {saving ? "Saving..." : "Continue to Chat"}
-          </button>
-        ) : (
-          <button
-            onClick={() => handleSave(false)}
-            disabled={saving}
-            className="rounded-full bg-indigo-500 px-6 py-2 text-sm font-semibold transition hover:bg-indigo-400 disabled:opacity-50"
-          >
-            {saving ? "Saving..." : "Save"}
-          </button>
-        )}
-        {saved && !isRequired && <p className="text-sm text-green-400">Saved.</p>}
-        {error && <p className="text-sm text-red-400">{error}</p>}
+          </AnimatePresence>
+          {error && <p className="text-sm font-medium text-danger mt-2">{error}</p>}
+        </motion.div>
 
         {!isRequired && (
           <>
             {knowledge.length > 0 && (
-              <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-                <h2 className="mb-1 text-sm font-semibold text-slate-300">Key Points</h2>
-                <p className="mb-3 text-xs text-slate-500">
-                  Extracted from what you've imported or uploaded. Remove anything that's
-                  wrong - it feeds directly into how your roadmap is shaped.
-                </p>
-                <div className="space-y-3">
-                  {Object.entries(
-                    knowledge.reduce<Record<string, KnowledgeEntry[]>>((acc, entry) => {
-                      (acc[entry.category] ??= []).push(entry);
-                      return acc;
-                    }, {}),
-                  ).map(([category, entries]) => (
-                    <div key={category}>
-                      <h3 className="mb-1 text-xs font-medium text-slate-400">
-                        {CATEGORY_LABEL[category] ?? category}
-                      </h3>
-                      <ul className="space-y-1">
-                        {entries.map((entry) => (
-                          <li
-                            key={entry.id}
-                            className="flex items-start justify-between gap-3 text-sm text-slate-200"
-                          >
-                            <span>{entry.content}</span>
-                            <button
-                              onClick={() => handleDeleteKnowledge(entry.id)}
-                              className="shrink-0 text-xs text-slate-500 hover:text-red-400"
+              <motion.div variants={itemVariants}>
+                <Card>
+                  <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-2">Key Points</p>
+                  <p className="text-xs text-fg-muted mb-3">
+                    Extracted from what you've imported or uploaded. Remove anything that's wrong.
+                  </p>
+                  <div className="space-y-3">
+                    {Object.entries(
+                      knowledge.reduce<Record<string, KnowledgeEntry[]>>((acc, entry) => {
+                        (acc[entry.category] ??= []).push(entry);
+                        return acc;
+                      }, {}),
+                    ).map(([category, entries]) => (
+                      <div key={category}>
+                        <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-1">
+                          {CATEGORY_LABEL[category] ?? category}
+                        </p>
+                        <ul className="space-y-1">
+                          {entries.map((entry) => (
+                            <motion.li
+                              key={entry.id}
+                              initial={{ opacity: 0, x: -10 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              className="flex items-start justify-between gap-3 text-sm border-b border-border pb-1"
                             >
-                              Remove
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
-                </div>
-              </div>
+                              <span>{entry.content}</span>
+                              <Button variant="ghost" size="sm" onClick={() => handleDeleteKnowledge(entry.id)}>
+                                Remove
+                              </Button>
+                            </motion.li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                </Card>
+              </motion.div>
             )}
 
-            {resumeSection}
+            <motion.div variants={itemVariants}>{resumeSection}</motion.div>
 
-            <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-              <h2 className="mb-2 text-sm font-semibold text-slate-300">Import from another AI</h2>
-              <p className="mb-3 text-xs text-slate-500">
-                Already talked to an AI about your goals elsewhere? Bring that context in.
-              </p>
-              <Link
-                to="/import"
-                className="inline-block rounded-md bg-slate-700 px-3 py-1 text-xs font-medium transition hover:bg-slate-600"
-              >
-                Import AI Context
-              </Link>
-            </div>
+            <motion.div variants={itemVariants}>
+              <Card>
+                <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-2">Import from another AI</p>
+                <p className="text-xs text-fg-muted mb-3">
+                  Already talked to an AI about your goals elsewhere? Bring that context in.
+                </p>
+                <Link to="/import">
+                  <Button variant="secondary" size="sm">Import AI Context</Button>
+                </Link>
+              </Card>
+            </motion.div>
 
             {state.roadmap && (
-              <div className="rounded-lg border border-red-900/60 bg-red-950/10 p-4">
-                <h2 className="mb-2 text-sm font-semibold text-slate-300">Start a New Goal</h2>
-                <p className="mb-3 text-xs text-slate-500">
-                  Ready to learn something else? This clears your current roadmap and skill
-                  assessment - your personal details stay the same.
-                </p>
-                <button
-                  onClick={handleStartNewGoal}
-                  disabled={restarting}
-                  className="rounded-md bg-red-950 px-3 py-1 text-xs font-medium text-red-300 transition hover:bg-red-900 disabled:opacity-50"
-                >
-                  {restarting ? "Starting..." : "Start a new goal"}
-                </button>
-              </div>
+              <motion.div variants={itemVariants}>
+                <Card className="border-danger/20 bg-danger/5">
+                  <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-2">Start a New Goal</p>
+                  <p className="text-xs text-fg-muted mb-3">
+                    Ready to learn something else? This clears your current roadmap and skill assessment.
+                  </p>
+                  <Button variant="danger" size="sm" onClick={handleStartNewGoal} disabled={restarting}>
+                    {restarting ? "Starting..." : "Start a New Goal"}
+                  </Button>
+                </Card>
+              </motion.div>
             )}
 
-            <div className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-              <h2 className="mb-2 text-sm font-semibold text-slate-300">
-                Skill Assessment Results
-              </h2>
-              <p className="mb-3 text-xs text-slate-500">
-                Read-only - these come from your quiz results, not self-reported.
-              </p>
-              {assessments.length === 0 ? (
-                <p className="text-sm text-slate-500">No skills assessed yet.</p>
-              ) : (
-                <ul className="space-y-1">
-                  {assessments.map((a) => (
-                    <li key={a.concept} className="flex items-center justify-between text-sm">
-                      <span>{a.concept}</span>
-                      <span className={`text-xs font-medium ${STATUS_COLOR[a.status]}`}>
-                        {a.status.replace("_", " ")}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
+            <motion.div variants={itemVariants}>
+              <Card>
+                <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-2">Skill Assessment Results</p>
+                <p className="text-xs text-fg-muted mb-3">
+                  Read-only - these come from your quiz results, not self-reported.
+                </p>
+                {assessments.length === 0 ? (
+                  <p className="text-sm text-fg-muted">No skills assessed yet.</p>
+                ) : (
+                  <ul className="space-y-1">
+                    {assessments.map((a) => (
+                      <motion.li
+                        key={a.concept}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        className="flex items-center justify-between text-sm border-b border-border pb-1"
+                      >
+                        <span className="font-medium">{a.concept}</span>
+                        <Badge variant={
+                          a.status === "known" || a.status === "learned" ? "success" :
+                          a.status === "claimed_unconfirmed" ? "purple" : "danger"
+                        }>
+                          {a.status.replace("_", " ")}
+                        </Badge>
+                      </motion.li>
+                    ))}
+                  </ul>
+                )}
+              </Card>
+            </motion.div>
           </>
         )}
-      </div>
+      </motion.div>
     </div>
   );
 }

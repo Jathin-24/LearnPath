@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { PolarAngleAxis, PolarGrid, Radar, RadarChart, ResponsiveContainer } from "recharts";
 import type { ConceptStatus } from "../types";
 
@@ -13,9 +14,19 @@ interface Props {
 }
 
 export default function SkillRadarChart({ skillRadar }: Props) {
+  const [isDark, setIsDark] = useState(() => document.documentElement.classList.contains("dark"));
+
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      setIsDark(document.documentElement.classList.contains("dark"));
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
+
   const entries = Object.entries(skillRadar);
   if (entries.length === 0) {
-    return <p className="text-sm text-slate-500">No skills assessed yet.</p>;
+    return <p className="text-sm text-fg-muted">No skills assessed yet.</p>;
   }
 
   const data = entries.map(([concept, status]) => ({
@@ -26,9 +37,9 @@ export default function SkillRadarChart({ skillRadar }: Props) {
   return (
     <ResponsiveContainer width="100%" height={280}>
       <RadarChart data={data}>
-        <PolarGrid stroke="#334155" />
-        <PolarAngleAxis dataKey="concept" tick={{ fill: "#94a3b8", fontSize: 11 }} />
-        <Radar dataKey="value" stroke="#6366f1" fill="#6366f1" fillOpacity={0.4} />
+        <PolarGrid stroke={isDark ? "#2A2A2A" : "#E2E2DC"} />
+        <PolarAngleAxis dataKey="concept" tick={{ fill: isDark ? "#A0A0A0" : "#666666", fontSize: 11 }} />
+        <Radar dataKey="value" stroke="#8B7CF6" fill="#8B7CF6" fillOpacity={0.2} />
       </RadarChart>
     </ResponsiveContainer>
   );

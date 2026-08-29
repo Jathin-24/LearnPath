@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  deleteRoadmapNode,
   editRoadmapNode,
   refreshWebResources,
   regenerateTopic,
@@ -16,10 +17,10 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const STATUS_COLOR: Record<string, string> = {
-  locked: "text-slate-500",
-  available: "text-indigo-400",
-  in_progress: "text-yellow-400",
-  complete: "text-green-400",
+  locked: "text-fg-muted",
+  available: "text-fg",
+  in_progress: "text-accent-dark",
+  complete: "text-success",
 };
 
 interface Props {
@@ -53,7 +54,6 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
       onChanged(state);
       setEditingNodeId(null);
     } catch {
-      // no-op - stay in edit mode so the learner can retry
     } finally {
       setBusyNodeId(null);
     }
@@ -67,7 +67,6 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
       const { state } = await reorderRoadmapNode(sessionId, nodeId, direction);
       onChanged(state);
     } catch {
-      // no-op - the button staying put communicates the failure well enough here
     } finally {
       setBusyNodeId(null);
     }
@@ -81,7 +80,6 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
       const { state } = await skipRoadmapNode(sessionId, nodeId);
       onChanged(state);
     } catch {
-      // no-op
     } finally {
       setBusyNodeId(null);
     }
@@ -95,7 +93,19 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
       const { state } = await refreshWebResources(sessionId, nodeId);
       onChanged(state);
     } catch {
-      // no-op - the button staying put communicates the failure well enough here
+    } finally {
+      setBusyNodeId(null);
+    }
+  }
+
+  async function handleDelete(e: React.MouseEvent, nodeId: string) {
+    e.stopPropagation();
+    if (!sessionId || !onChanged) return;
+    setBusyNodeId(nodeId);
+    try {
+      const { state } = await deleteRoadmapNode(sessionId, nodeId);
+      onChanged(state);
+    } catch {
     } finally {
       setBusyNodeId(null);
     }
@@ -117,7 +127,6 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
       setRegenerateBoxNodeId(null);
       setRegenerateText("");
     } catch {
-      // no-op - the box staying put communicates the failure well enough here
     } finally {
       setBusyNodeId(null);
     }
@@ -131,9 +140,9 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
           onClick={() => onNodeClick?.(node.node_id)}
           className={`rounded-xl border p-4 ${
             node.path_type === "path_b_open_web"
-              ? "border-dashed border-red-800 bg-red-950/20"
-              : "border-slate-800 bg-slate-900"
-          } ${onNodeClick ? "cursor-pointer hover:border-indigo-500" : ""}`}
+              ? "border-dashed border-pink/30 bg-pink/5"
+              : "border-border bg-surface"
+          } ${onNodeClick ? "cursor-pointer hover:border-border-strong" : ""}`}
         >
           <div className="flex items-center justify-between gap-3">
             {editingNodeId === node.node_id ? (
@@ -142,16 +151,16 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
                 value={editTopic}
                 onChange={(e) => setEditTopic(e.target.value)}
                 onClick={(e) => e.stopPropagation()}
-                className="w-full rounded-md bg-slate-950 p-1.5 text-sm font-semibold outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full rounded-lg border border-border bg-bg px-3 py-1.5 text-sm font-medium outline-none focus:border-fg/30"
               />
             ) : (
-              <h3 className="font-semibold">
+              <h3 className="font-medium text-fg">
                 {i + 1}. {node.topic}
               </h3>
             )}
             <div className="flex shrink-0 items-center gap-2">
               {node.estimated_days > 0 && (
-                <span className="text-xs text-slate-500">~{node.estimated_days}d</span>
+                <span className="text-xs text-fg-muted">~{node.estimated_days}d</span>
               )}
               <span className={`text-xs font-medium ${STATUS_COLOR[node.status]}`}>
                 {STATUS_LABEL[node.status]}
@@ -159,14 +168,14 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
             </div>
           </div>
 
-          {node.course_summary && <p className="mt-1 text-sm text-slate-400">{node.course_summary}</p>}
+          {node.course_summary && <p className="mt-1 text-sm text-fg-secondary">{node.course_summary}</p>}
 
           {node.key_concepts.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1">
               {node.key_concepts.map((concept) => (
                 <span
                   key={concept}
-                  className="rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-300"
+                  className="rounded-md bg-bg-secondary px-2 py-0.5 text-xs text-fg-secondary"
                 >
                   {concept}
                 </span>
@@ -175,14 +184,14 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
           )}
 
           {node.project && node.status === "complete" && (
-            <div className="mt-2 rounded-md bg-slate-950 p-2">
-              <p className="text-xs font-medium text-indigo-300">Project: {node.project.title}</p>
-              <p className="mt-0.5 text-xs text-slate-400">{node.project.description}</p>
+            <div className="mt-2 rounded-lg bg-bg-secondary p-3">
+              <p className="text-xs font-medium text-fg">Project: {node.project.title}</p>
+              <p className="mt-0.5 text-xs text-fg-secondary">{node.project.description}</p>
               {node.project.success_criteria.length > 0 && (
                 <ul className="mt-1.5 space-y-0.5">
                   {node.project.success_criteria.map((c, i) => (
-                    <li key={i} className="flex items-start gap-1 text-xs text-slate-500">
-                      <span className="mt-0.5 text-indigo-400">✓</span>
+                    <li key={i} className="flex items-start gap-1 text-xs text-fg-muted">
+                      <span className="mt-0.5 text-success">✓</span>
                       <span>{c}</span>
                     </li>
                   ))}
@@ -192,11 +201,11 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
           )}
 
           {node.cheat_sheet_notes && (
-            <details className="mt-2 rounded-md bg-slate-950 p-2">
-              <summary className="cursor-pointer text-xs font-medium text-indigo-300">
+            <details className="mt-2 rounded-lg bg-bg-secondary p-3">
+              <summary className="cursor-pointer text-xs font-medium text-fg-secondary">
                 Study notes
               </summary>
-              <p className="mt-1 whitespace-pre-wrap text-xs text-slate-400">
+              <p className="mt-1 whitespace-pre-wrap text-xs text-fg-muted">
                 {node.cheat_sheet_notes}
               </p>
             </details>
@@ -212,7 +221,7 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
                   rel="noreferrer"
                   title={r.snippet || r.title}
                   onClick={(e) => e.stopPropagation()}
-                  className="max-w-[14rem] truncate rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-300 hover:text-indigo-300"
+                  className="max-w-[14rem] truncate rounded-md bg-bg-secondary px-2 py-0.5 text-xs text-fg-secondary hover:text-fg"
                 >
                   🔗 {r.title}
                 </a>
@@ -225,7 +234,7 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
                   rel="noreferrer"
                   title={r.snippet || r.title}
                   onClick={(e) => e.stopPropagation()}
-                  className="max-w-[14rem] truncate rounded-full bg-red-950/50 px-2 py-0.5 text-xs text-red-300 hover:text-red-200"
+                  className="max-w-[14rem] truncate rounded-md bg-pink/5 px-2 py-0.5 text-xs text-pink hover:text-pink/80"
                 >
                   ▶ {r.title}
                 </a>
@@ -234,17 +243,17 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
           )}
 
           {node.internal_prerequisites.length > 0 && (
-            <p className="mt-2 text-xs text-slate-500">
+            <p className="mt-2 text-xs text-fg-muted">
               Requires: {node.internal_prerequisites.map((id) => topicById[id] ?? id).join(", ")}
             </p>
           )}
 
           {editable && (
-            <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-800 pt-2">
+            <div className="mt-3 flex flex-wrap gap-2 border-t border-border pt-3">
               <button
                 onClick={(e) => handleRefreshWeb(e, node.node_id)}
                 disabled={busyNodeId === node.node_id}
-                className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-700 disabled:opacity-30"
+                className="rounded-lg bg-bg-secondary px-3 py-1.5 text-xs text-fg-secondary transition hover:bg-border disabled:opacity-30"
               >
                 {busyNodeId === node.node_id ? "Searching..." : "🔎 Find more resources"}
               </button>
@@ -252,7 +261,7 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
                 <button
                   onClick={(e) => openRegenerateBox(e, node.node_id)}
                   disabled={busyNodeId === node.node_id}
-                  className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-700 disabled:opacity-30"
+                  className="rounded-lg bg-bg-secondary px-3 py-1.5 text-xs text-fg-secondary transition hover:bg-border disabled:opacity-30"
                 >
                   ♻ Regenerate
                 </button>
@@ -263,9 +272,9 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
           {regenerateBoxNodeId === node.node_id && (
             <div
               onClick={(e) => e.stopPropagation()}
-              className="mt-2 rounded-md border border-slate-800 bg-slate-950 p-3"
+              className="mt-3 rounded-lg border border-border bg-bg p-3"
             >
-              <label className="mb-1.5 block text-xs font-medium text-slate-400">
+              <label className="mb-1.5 block text-xs font-medium text-fg-secondary">
                 Anything to add or change? (optional)
               </label>
               <textarea
@@ -274,13 +283,13 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
                 onChange={(e) => setRegenerateText(e.target.value)}
                 rows={2}
                 placeholder="e.g. 'more real-world examples'"
-                className="w-full resize-y rounded-md bg-slate-900 p-2 text-xs text-white outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full resize-y rounded-lg border border-border bg-surface p-2 text-xs text-fg outline-none focus:border-fg/30"
               />
               <div className="mt-2 flex gap-2">
                 <button
                   onClick={(e) => handleRegenerate(e, node.node_id)}
                   disabled={busyNodeId === node.node_id}
-                  className="rounded-full bg-indigo-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-indigo-500 disabled:opacity-50"
+                  className="rounded-lg bg-fg px-3 py-1.5 text-xs font-medium text-white transition hover:bg-fg/90 dark:bg-accent dark:text-[#0A0A0A] dark:hover:bg-accent-dark disabled:opacity-50"
                 >
                   {busyNodeId === node.node_id ? "Regenerating..." : "Regenerate"}
                 </button>
@@ -290,7 +299,7 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
                     setRegenerateBoxNodeId(null);
                   }}
                   disabled={busyNodeId === node.node_id}
-                  className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-300 transition hover:bg-slate-700"
+                  className="rounded-lg bg-bg-secondary px-3 py-1.5 text-xs text-fg-secondary transition hover:bg-border"
                 >
                   Cancel
                 </button>
@@ -299,13 +308,13 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
           )}
 
           {editable && node.status === "locked" && (
-            <div className="mt-3 flex flex-wrap gap-2 border-t border-slate-800 pt-2">
+            <div className="mt-3 flex flex-wrap gap-2 border-t border-border pt-3">
               {editingNodeId === node.node_id ? (
                 <>
                   <button
                     onClick={(e) => handleSaveEdit(e, node.node_id)}
                     disabled={busyNodeId === node.node_id || !editTopic.trim()}
-                    className="rounded-md bg-indigo-600 px-2 py-1 text-xs text-white transition hover:bg-indigo-500 disabled:opacity-30"
+                    className="rounded-lg bg-fg px-3 py-1.5 text-xs font-medium text-white transition hover:bg-fg/90 dark:bg-accent dark:text-[#0A0A0A] dark:hover:bg-accent-dark disabled:opacity-30"
                   >
                     Save
                   </button>
@@ -314,7 +323,7 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
                       e.stopPropagation();
                       setEditingNodeId(null);
                     }}
-                    className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-700"
+                    className="rounded-lg bg-bg-secondary px-3 py-1.5 text-xs text-fg-secondary transition hover:bg-border"
                   >
                     Cancel
                   </button>
@@ -324,30 +333,37 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged }
                   <button
                     onClick={(e) => handleReorder(e, node.node_id, "up")}
                     disabled={busyNodeId === node.node_id || i === 0}
-                    className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-700 disabled:opacity-30"
+                    className="rounded-lg bg-bg-secondary px-3 py-1.5 text-xs text-fg-secondary transition hover:bg-border disabled:opacity-30"
                   >
                     ▲ Move up
                   </button>
                   <button
                     onClick={(e) => handleReorder(e, node.node_id, "down")}
                     disabled={busyNodeId === node.node_id || i === nodes.length - 1}
-                    className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-700 disabled:opacity-30"
+                    className="rounded-lg bg-bg-secondary px-3 py-1.5 text-xs text-fg-secondary transition hover:bg-border disabled:opacity-30"
                   >
                     ▼ Move down
                   </button>
                   <button
                     onClick={(e) => startEditing(e, node)}
                     disabled={busyNodeId === node.node_id}
-                    className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-300 transition hover:bg-slate-700 disabled:opacity-30"
+                    className="rounded-lg bg-bg-secondary px-3 py-1.5 text-xs text-fg-secondary transition hover:bg-border disabled:opacity-30"
                   >
                     Edit
                   </button>
                   <button
                     onClick={(e) => handleSkip(e, node.node_id)}
                     disabled={busyNodeId === node.node_id}
-                    className="rounded-md bg-red-950 px-2 py-1 text-xs text-red-300 transition hover:bg-red-900"
+                    className="rounded-lg bg-danger/5 px-3 py-1.5 text-xs text-danger transition hover:bg-danger/10"
                   >
                     Skip
+                  </button>
+                  <button
+                    onClick={(e) => handleDelete(e, node.node_id)}
+                    disabled={busyNodeId === node.node_id}
+                    className="rounded-lg bg-danger/5 px-3 py-1.5 text-xs text-danger transition hover:bg-danger/10"
+                  >
+                    Delete
                   </button>
                 </>
               )}

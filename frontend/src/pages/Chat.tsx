@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
 import { sendChatMessage, getState, submitChecklist, submitOnboardingQuiz } from "../api";
+import { Button, Card, Input } from "../components/nb";
 import ChatBubble from "../components/ChatBubble";
 import NavBar from "../components/NavBar";
 import QuizForm from "../components/QuizForm";
@@ -21,14 +23,9 @@ export default function Chat() {
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Checklist phase (state.pending_checklist_concepts)
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [submittingChecklist, setSubmittingChecklist] = useState(false);
 
-  // Quiz phase (state.pending_quiz) + its post-grade review, shown before
-  // moving on so a wrong answer isn't just a silent number - see
-  // backend/agents/assessment.py's module docstring for why this replaced
-  // free-text chat parsing entirely.
   const [submittingQuiz, setSubmittingQuiz] = useState(false);
   const [quizResults, setQuizResults] = useState<QuestionResult[] | null>(null);
 
@@ -121,7 +118,7 @@ export default function Chat() {
 
   if (!sessionId || !state) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white">
+      <div className="min-h-screen bg-bg text-fg">
         <NavBar />
         <PageSkeleton />
       </div>
@@ -136,120 +133,180 @@ export default function Chat() {
   const showComposer = !showChecklist && !showQuiz && !showQuizReview;
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-950 text-white">
+    <div className="flex min-h-screen flex-col bg-bg text-fg">
       <NavBar hasRoadmap={hasRoadmap} />
-      <header className="border-b border-slate-800 px-6 py-4">
-        <h1 className="text-lg font-semibold">Let's figure out your path</h1>
+      <motion.header
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="border-b border-border bg-surface px-6 py-4 animate-fade-in-up"
+      >
+        <h1 className="text-base font-semibold tracking-tight font-display">Let's figure out your path</h1>
         {history.length === 0 ? (
-          <div className="mt-2 flex items-center justify-between rounded-lg border border-indigo-800 bg-indigo-950/40 px-4 py-2 text-sm text-indigo-200">
-            <span>Already talked to another AI about your goals? Bring that context in.</span>
-            <Link to="/import" className="shrink-0 font-semibold text-indigo-300 hover:underline">
-              Import AI Context
+          <div className="mt-2 flex items-center justify-between">
+            <span className="text-sm text-fg-secondary">Already talked to another AI about your goals?</span>
+            <Link to="/import">
+              <Button variant="secondary" size="sm">Import AI Context</Button>
             </Link>
           </div>
         ) : (
-          <p className="mt-1 text-xs text-slate-500">
-            Already talked to another AI about your goals?{" "}
-            <Link to="/import" className="text-indigo-400 hover:underline">
+          <p className="mt-1 text-xs text-fg-muted">
+            Already talked to another AI?{" "}
+            <Link to="/import" className="text-fg font-medium hover:underline">
               Import AI Context
             </Link>
           </p>
         )}
-      </header>
+      </motion.header>
 
       <div className="flex-1 space-y-3 overflow-y-auto px-6 py-6">
         {history.length === 0 && (
-          <ChatBubble
-            role="assistant"
-            content="Hi! What's your learning goal - and roughly how much time do you have for it?"
-          />
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="animate-fade-in-up"
+          >
+            <ChatBubble
+              role="assistant"
+              content="Hi! What's your learning goal - and roughly how much time do you have for it?"
+            />
+          </motion.div>
         )}
         {history.map((turn, i) => (
-          <ChatBubble key={i} role={turn.role} content={turn.content} agent={turn.agent} />
+          <motion.div
+            key={i}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            <ChatBubble role={turn.role} content={turn.content} agent={turn.agent} />
+          </motion.div>
         ))}
-        {sending && <ChatBubble role="assistant" content="..." />}
+        {sending && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+          >
+            <ChatBubble role="assistant" content="..." />
+          </motion.div>
+        )}
 
-        {showChecklist && (
-          <div className="mx-auto max-w-xl rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <p className="mb-3 text-xs font-medium text-slate-400">
-              Tap anything you're already confident with, then confirm.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {state.pending_checklist_concepts.map((concept) => (
-                <button
-                  key={concept}
-                  onClick={() => toggleConcept(concept)}
-                  className={`rounded-full border px-3 py-1.5 text-sm transition ${
-                    checked.has(concept)
-                      ? "border-indigo-500 bg-indigo-500/20 text-indigo-200"
-                      : "border-slate-700 text-slate-300 hover:border-slate-500"
-                  }`}
+        <AnimatePresence>
+          {showChecklist && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="animate-fade-in-up"
+              style={{ animationDelay: '0.3s' }}
+            >
+              <Card className="mx-auto max-w-xl">
+                <p className="text-xs font-medium text-fg-secondary mb-3">
+                  TAP ANYTHING YOU'RE ALREADY CONFIDENT WITH, THEN CONFIRM.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {state.pending_checklist_concepts.map((concept) => (
+                    <motion.button
+                      key={concept}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={() => toggleConcept(concept)}
+                      className={`border rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-300 hover:scale-[1.02] ${
+                        checked.has(concept)
+                          ? "border-fg bg-fg text-white dark:border-accent dark:bg-accent dark:text-[#0A0A0A]"
+                          : "border-border bg-surface text-fg hover:border-border-strong"
+                      }`}
+                    >
+                      {checked.has(concept) ? "✓ " : ""}
+                      {concept}
+                    </motion.button>
+                  ))}
+                </div>
+                <Button
+                  className="mt-4"
+                  onClick={handleChecklistConfirm}
+                  disabled={submittingChecklist}
                 >
-                  {checked.has(concept) ? "✓ " : ""}
-                  {concept}
-                </button>
-              ))}
-            </div>
-            <button
-              onClick={handleChecklistConfirm}
-              disabled={submittingChecklist}
-              className="mt-4 rounded-full bg-indigo-500 px-6 py-2 text-sm font-semibold transition hover:bg-indigo-400 disabled:opacity-50"
-            >
-              {submittingChecklist
-                ? "Thinking..."
-                : checked.size === 0
-                  ? "None of these"
-                  : `Confirm ${checked.size} selected`}
-            </button>
-          </div>
-        )}
+                  {submittingChecklist
+                    ? "Thinking..."
+                    : checked.size === 0
+                      ? "None of these"
+                      : `Confirm ${checked.size} selected`}
+                </Button>
+              </Card>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        {showQuiz && (
-          <div className="mx-auto max-w-xl rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <QuizForm
-              questions={state.pending_quiz}
-              onSubmit={handleQuizSubmit}
-              submitting={submittingQuiz}
-            />
-          </div>
-        )}
-
-        {showQuizReview && quizResults && (
-          <div className="mx-auto max-w-xl space-y-3">
-            <QuizResults results={quizResults} />
-            <button
-              onClick={handleContinueAfterQuiz}
-              className="w-full rounded-full bg-indigo-500 px-6 py-2 text-sm font-semibold transition hover:bg-indigo-400"
+        <AnimatePresence>
+          {showQuiz && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="animate-fade-in-up"
+              style={{ animationDelay: '0.3s' }}
             >
-              See my roadmap
-            </button>
-          </div>
-        )}
+              <Card className="mx-auto max-w-xl">
+                <QuizForm
+                  questions={state.pending_quiz}
+                  onSubmit={handleQuizSubmit}
+                  submitting={submittingQuiz}
+                />
+              </Card>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {showQuizReview && quizResults && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="mx-auto max-w-xl space-y-3 animate-fade-in-up"
+              style={{ animationDelay: '0.3s' }}
+            >
+              <QuizResults results={quizResults} />
+              <Button
+                className="w-full hover:scale-[1.02] transition-transform duration-300"
+                onClick={handleContinueAfterQuiz}
+              >
+                See my roadmap →
+              </Button>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <div ref={bottomRef} />
       </div>
 
-      {error && <p className="px-6 pb-2 text-sm text-red-400">{error}</p>}
+      {error && <p className="px-6 pb-2 text-sm text-danger">{error}</p>}
 
       {showComposer && (
-        <div className="border-t border-slate-800 p-4">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="border-t border-border bg-surface p-4 animate-fade-in-up"
+          style={{ animationDelay: '0.4s' }}
+        >
           <div className="mx-auto flex max-w-3xl gap-2">
-            <input
+            <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleSend()}
               placeholder="Type your message..."
-              className="flex-1 rounded-full bg-slate-800 px-4 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500"
             />
-            <button
-              onClick={handleSend}
-              disabled={sending || !input.trim()}
-              className="rounded-full bg-indigo-500 px-5 py-2 text-sm font-semibold disabled:opacity-50"
-            >
-              Send
-            </button>
+            <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+              <Button
+                onClick={handleSend}
+                disabled={sending || !input.trim()}
+              >
+                Send
+              </Button>
+            </motion.div>
           </div>
-        </div>
+        </motion.div>
       )}
     </div>
   );

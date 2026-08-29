@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getState, restartGoal } from "../api";
+import { Button, Card } from "../components/nb";
 import NavBar from "../components/NavBar";
 import PageSkeleton from "../components/Skeleton";
 import { getSessionId } from "../session";
@@ -70,7 +71,7 @@ export default function Complete() {
 
   if (!state) {
     return (
-      <div className="min-h-screen bg-slate-950 text-white">
+      <div className="min-h-screen bg-bg text-fg">
         <NavBar hasRoadmap />
         <PageSkeleton />
       </div>
@@ -82,66 +83,62 @@ export default function Complete() {
   const projects = nodes.filter((n) => n.project);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white">
+    <div className="min-h-screen bg-bg text-fg">
       <NavBar hasRoadmap />
       <div className="mx-auto max-w-2xl px-6 py-12 text-center">
-        <div className="animate-celebrate text-5xl">🎉</div>
-        <h1 className="animate-celebrate mt-4 text-4xl font-bold">Roadmap Complete!</h1>
-        <p className="mt-3 text-slate-400">
+        <div className="animate-celebrate text-6xl mb-4">🎉</div>
+        <h1 className="animate-celebrate text-3xl font-semibold tracking-tight">
+          Roadmap Complete!
+        </h1>
+        <p className="mt-3 text-sm text-fg-secondary">
           You finished every topic in your roadmap for{" "}
-          <span className="text-slate-200">{state.learner_profile.goal ?? "your goal"}</span>.
+          <span className="font-medium">{state.learner_profile.goal ?? "your goal"}</span>.
           Nice work.
         </p>
 
         <div className="mt-8 grid grid-cols-3 gap-4">
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <p className="text-2xl font-bold text-indigo-400">{nodes.length}</p>
-            <p className="mt-1 text-xs text-slate-400">Topics finished</p>
-          </div>
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <p className="text-2xl font-bold text-indigo-400">{projects.length}</p>
-            <p className="mt-1 text-xs text-slate-400">Projects built</p>
-          </div>
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-4">
-            <p className="text-2xl font-bold text-indigo-400">{formatDuration(totalSeconds)}</p>
-            <p className="mt-1 text-xs text-slate-400">Time invested</p>
-          </div>
+          <Card>
+            <p className="text-2xl font-semibold">{nodes.length}</p>
+            <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mt-1">Topics Finished</p>
+          </Card>
+          <Card>
+            <p className="text-2xl font-semibold">{projects.length}</p>
+            <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mt-1">Projects Built</p>
+          </Card>
+          <Card>
+            <p className="text-2xl font-semibold">{formatDuration(totalSeconds)}</p>
+            <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mt-1">Time Invested</p>
+          </Card>
         </div>
 
         {projects.length > 0 && (
-          <div className="mt-6 rounded-xl border border-slate-800 bg-slate-900 p-4 text-left">
-            <h2 className="mb-2 text-sm font-semibold text-slate-300">What you built</h2>
+          <Card className="mt-6 text-left">
+            <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-2">What You Built</p>
             <ul className="space-y-1">
               {projects.map((n) => (
-                <li key={n.node_id} className="text-sm text-slate-300">
-                  <span className="text-indigo-400">✓</span> {n.project!.title}
+                <li key={n.node_id} className="text-sm font-medium">
+                  <span className="text-success font-bold mr-2">✓</span> {n.project!.title}
                 </li>
               ))}
             </ul>
-          </div>
+          </Card>
         )}
 
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-          <button
-            onClick={() => downloadRecap(state)}
-            className="rounded-full bg-slate-800 px-6 py-3 font-semibold transition hover:bg-slate-700"
-          >
-            Download recap
-          </button>
-          <button
-            onClick={handleStartNewGoal}
-            disabled={restarting}
-            className="rounded-full bg-indigo-500 px-6 py-3 font-semibold transition hover:bg-indigo-400 disabled:opacity-50"
-          >
-            {restarting ? "Starting..." : "Start a new goal"}
-          </button>
+          <Button variant="secondary" onClick={() => downloadRecap(state)}>
+            Download Recap
+          </Button>
+          <Button onClick={handleStartNewGoal} disabled={restarting}>
+            {restarting ? "Starting..." : "Start a New Goal →"}
+          </Button>
         </div>
-        <button
+        <Button
+          variant="ghost"
+          className="mt-4"
           onClick={() => navigate("/dashboard")}
-          className="mt-4 text-sm text-slate-500 hover:text-slate-300 hover:underline"
         >
           Back to Dashboard
-        </button>
+        </Button>
       </div>
     </div>
   );
