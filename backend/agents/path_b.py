@@ -155,18 +155,40 @@ Write exactly {QUESTIONS_PER_NODE} questions, each with exactly 4 options and an
         return attempt(stricter)  # let this raise if it fails again - fail loud
 
 
-def _to_web_resource(r: dict) -> WebResource:
+def _domain(url: str) -> str:
+    from urllib.parse import urlparse
+    host = (urlparse(url).netloc or "").replace("www.", "")
+    return host or "web"
+
+
+def _to_web_resource(r: dict, source_type: str = "web") -> WebResource:
+    score = r.get("score")
+    published = r.get("published_date")
+    try:
+        score = round(float(score), 3) if score is not None else None
+    except (TypeError, ValueError):
+        score = None
+    freshness = published if published else "unknown"
+    relevance = f"Tavily relevance {score:.0%}" if score is not None else "not relevance-ranked"
+    reason = (
+        f"Top result for this topic from {_domain(r.get('url',''))}; "
+        f"published {freshness}; {relevance}."
+    )
     return WebResource(
         title=r.get("title") or r["url"],
         url=r["url"],
         snippet=(r.get("content") or "")[:220].strip(),
+        source_type=source_type,
+        score=score,
+        published_date=published,
+        reason=reason,
     )
 
 
 def _apply_resources(node: RoadmapNode, notes: str, web_results: list[dict], youtube_results: list[dict]) -> None:
     node.cheat_sheet_notes = notes
-    node.web_sources = [_to_web_resource(r) for r in web_results if r.get("url")]
-    node.youtube_links = [_to_web_resource(r) for r in youtube_results if r.get("url")]
+    node.web_sources = [_to_web_resource(r, "web") for r in web_results if r.get("url")]
+    node.youtube_links = [_to_web_resource(r, "youtube") for r in youtube_results if r.get("url")]
 
 
 def _fill_resources_only(state: AppState, node: RoadmapNode, client: LLMClient, search: TavilyClient) -> str:

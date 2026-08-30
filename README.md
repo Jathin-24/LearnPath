@@ -149,5 +149,20 @@ features (activity streaks, achievement badges, spaced-repetition topic
 review). See `CLAUDE.md` for the full history and `docs/final_decisions.md`
 for closed implementation decisions.
 
-Not yet done: hosting/deployment (see `docs/deployment_guide.md` to do
-this yourself), solution documentation (PDF/PPT), demo video.
+### Deployed (live) vs planned
+
+**Live today:**
+- **Backend**: FastAPI on Render (Supabase-hosted Postgres, FAISS/TF-IDF
+  RAG, LangGraph orchestrator, multi-provider LLM failover, Tavily web
+  search), with access-token session-ownership enforcement.
+- **Frontend**: React + TypeScript + Vite on Vercel.
+
+**Actual runtime architecture (use this for the pitch):**
+`React/Vite → FastAPI → LangGraph → RAG (FAISS + TF-IDF) → LLM/Tavily → PostgreSQL`.
+
+**Planned production evolution (NOT yet live - present separately, not as
+the current stack):** managed vector search, a dedicated graph store,
+Redis caching, and horizontally-scalable app workers. These are future
+hardening, not what is running today.
+
+Not yet done: solution doc/PPT polish and a polished demo video.

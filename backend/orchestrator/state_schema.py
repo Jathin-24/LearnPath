@@ -202,11 +202,21 @@ class WebResource(BaseModel):
     """A single web/YouTube resource with enough detail to preview before
     clicking through - title + short snippet, both pulled straight from the
     Tavily search result already fetched to synthesize cheat_sheet_notes
-    (see path_b.py's _search_topic), no extra API calls needed."""
+    (see path_b.py's _search_topic), no extra API calls needed.
+
+    Provenance fields (source_type / score / published_date / reason) give the
+    learner a trust signal for web-sourced material: where it came from, how
+    relevant Tavily ranked it, how fresh it is, and why it was surfaced.
+    Kept optional so older persisted sessions upgrade cleanly.
+    """
 
     title: str
     url: str
     snippet: str = ""
+    source_type: str = "web"                # "web" | "youtube" | "sheet"
+    score: Optional[float] = None           # Tavily relevance score, 0..1
+    published_date: Optional[str] = None    # freshness from Tavily when present
+    reason: Optional[str] = None            # short "why trust / why this" note
 
 
 class RoadmapNode(BaseModel):
