@@ -506,7 +506,7 @@ def _merge_resume_profile_fields(state: AppState, text: str) -> str | None:
 
 
 @app.post("/profile/resume")
-async def upload_resume(session_id: str = Form(...), file: UploadFile = File(...)):
+async def upload_resume(request: Request, session_id: str = Form(...), file: UploadFile = File(...)):
     state = _load_or_404(session_id, request)
     if not (file.filename or "").lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF resumes are supported right now")
