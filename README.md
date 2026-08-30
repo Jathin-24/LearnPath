@@ -183,7 +183,9 @@ backend/
                      roadmap_generator, explainer, tutor, knowledge_extractor)
   api/main.py        every FastAPI route
   orchestrator/      shared Pydantic state schema (state_schema.py) + LangGraph graph
-  common/            LLM client, DB access, config, deterministic grading, slugify
+  common/            LLM client, DB access, config, deterministic grading, slugify,
+                     access-token security (security.py)
+  benchmarks/        ai_benchmark.py — head-to-head engine vs baseline benchmark
   data/              the enriched 80-course dataset (enriched_courses.json)
   data_prep/         offline enrichment pipeline (already run once)
   rag/               TF-IDF + FAISS index build and retrieval
@@ -193,7 +195,9 @@ frontend/
                      Dashboard, TopicDetail, Analytics, ImportContext, ...)
   src/components/    shared UI (buttons, cards, roadmap graph/list, charts, effects)
   src/api.ts         typed wrapper around every backend route
-  src/types.ts       hand-maintained mirror of state_schema.py
+  src/types/         hand-maintained mirror of state_schema.py (index.ts, roadmap.ts)
+  src/routes/        client-side routing
+  src/utils/         small shared helpers
 docs/                project brief, API contract, deployment guide, decisions
 ```
 
@@ -210,7 +214,7 @@ docs/                project brief, API contract, deployment guide, decisions
 ```bash
 # Clone and enter the repo
 git clone <your-repo-url>
-cd learning-path-recommender
+cd LearnPath
 
 # Create and activate a virtual environment
 python -m venv .venv
@@ -269,6 +273,7 @@ VITE_API_BASE_URL=http://127.0.0.1:8000
 | `DATABASE_URL` | Yes | Postgres connection string (local or Supabase pooler) |
 | `TAVILY_API_KEY` | Yes | [Tavily](https://tavily.com) free API key — used for Path B (web/YouTube) and "find more resources" |
 | `ALLOWED_ORIGINS` | Optional | Comma-separated CORS origins for a deployed frontend |
+| `ACCESS_TOKEN_SECRET` | Optional* | Signs the login/signup access tokens used for session-ownership enforcement. Set a long random value in production; if unset, tokens use a per-process key (invalidated on restart — fine for dev) |
 
 Get free keys at [Groq](https://console.groq.com),
 [OpenRouter](https://openrouter.ai), and [Tavily](https://tavily.com).
@@ -319,6 +324,17 @@ npm run lint        # oxlint
 npx tsc --noEmit    # TypeScript check
 ```
 
+**AI benchmark** — compares the hybrid engine (Path-A RAG + LLM planning +
+prerequisite traversal) against a generic-LLM baseline and a RAG-only
+baseline over 30 learner profiles, scored on relevance, ordering,
+personalization, feasibility, and grounding:
+
+```bash
+python -m backend.benchmarks.ai_benchmark --limit 5    # first 5 profiles
+python -m backend.benchmarks.ai_benchmark --resume     # resume after rate limits
+# --offline uses deterministic heuristics instead of an LLM grader
+```
+
 ## Deployment
 
 The app is designed to deploy on free tiers with no code changes:
@@ -349,6 +365,16 @@ Both roadmap paths (dataset-grounded **Path A** and web-sourced **Path B**)
 are fully built across backend and frontend, including auth, resume parsing,
 sequential roadmap unlocking, lazy sub-concept quizzes, AI-steered roadmap
 regeneration, personalization, analytics, and engagement features
-(streaks, badges, spaced-repetition review). The app targets the hackathon
-deliverable of a working, demoable product grounded in real LLM calls and a
-real database — no mocked responses.
+(streaks, badges, spaced-repetition review). Added on top:
+
+- **Session-ownership authorization** — signed access tokens on signup/login;
+  a session that belongs to a user requires a matching token, while the
+  Continue-as-Guest flow stays open (`docs/final_decisions.md` → Auth hardening).
+- **Resource provenance** — every web-sourced article/video carries
+  source type, Tavily relevance, freshness, and a why-this reason.
+- **AI benchmark** — `backend/benchmarks/ai_benchmark.py` scores the hybrid
+  engine against a generic-LLM and a RAG-only baseline over 30 learner
+  profiles, across 5 quality dimensions (see [Testing](#testing)).
+
+The app targets the hackathon deliverable of a working, demoable product
+grounded in real LLM calls and a real database — no mocked responses.
