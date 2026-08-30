@@ -496,10 +496,23 @@ export default function TopicDetail() {
                     </p>
                     <button
                       onClick={() => handleCopyTopicPrompt(activeSubtopic.name, activeSubtopic.subtopic_id)}
-                      className="self-start flex items-center gap-2 rounded-xl bg-slate-800 border border-slate-800 px-4 py-2 text-sm font-semibold text-slate-100 transition hover:bg-white/10 hover:text-white"
+                      className="group/ai self-start inline-flex items-center gap-3 rounded-2xl border border-slate-400/30 bg-slate-400/10 py-2 pl-2 pr-4 transition-all hover:border-slate-400/50 hover:bg-slate-400/15 hover:shadow-lg hover:shadow-slate-950/40"
                     >
-                      {copiedSubtopicId === activeSubtopic.subtopic_id ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4 text-slate-300" />}
-                      {copiedSubtopicId === activeSubtopic.subtopic_id ? "Prompt Copied!" : "Copy AI Tutor Prompt"}
+                      <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-slate-400/20 transition-colors group-hover/ai:bg-slate-400/30">
+                        {copiedSubtopicId === activeSubtopic.subtopic_id ? (
+                          <Check className="h-4 w-4 text-emerald-300" />
+                        ) : (
+                          <Copy className="h-4 w-4 text-slate-200" />
+                        )}
+                      </span>
+                      <span className="flex flex-col items-start leading-tight">
+                        <span className={`text-sm font-bold ${copiedSubtopicId === activeSubtopic.subtopic_id ? "text-emerald-200" : "text-slate-100"}`}>
+                          {copiedSubtopicId === activeSubtopic.subtopic_id ? "Prompt copied!" : "Copy AI Tutor Prompt"}
+                        </span>
+                        <span className="text-[11px] font-medium text-slate-400">
+                          Ask the AI to explain or tutor this concept
+                        </span>
+                      </span>
                     </button>
                   </div>
 

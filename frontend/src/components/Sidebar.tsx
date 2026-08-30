@@ -1,22 +1,31 @@
 ﻿import { Link, useLocation } from "react-router-dom";
 import { useAppState } from "../context/AppStateContext";
-import { LayoutDashboard, BarChart3, User, LogOut, Code2, ChevronLeft, ChevronRight } from "lucide-react";
+import { learnerProfileComplete } from "../utils/profile";
+import { LayoutDashboard, BarChart3, User, LogOut, Code2, ChevronLeft, ChevronRight, ShieldAlert } from "lucide-react";
 
 
 export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const location = useLocation();
   const { auth, state, logout } = useAppState();
 
+  const profileComplete = learnerProfileComplete(state?.learner_profile ?? null);
+
   const links = [];
+
+  // Until the required profile details are filled, the only accessible
+  // section is completing the profile.
+  if (!profileComplete) {
+    links.push({ to: "/profile?required=1", icon: <ShieldAlert className="w-5 h-5" />, label: "Complete Profile" });
+  } else {
+    if (state?.roadmap) {
+      links.push({ to: "/app", icon: <LayoutDashboard className="w-5 h-5" />, label: "Dashboard" });
+    }
   
-  if (state?.roadmap) {
-    links.push({ to: "/app", icon: <LayoutDashboard className="w-5 h-5" />, label: "Dashboard" });
-  }
+    links.push({ to: "/profile", icon: <User className="w-5 h-5" />, label: "Profile" });
   
-  links.push({ to: "/profile", icon: <User className="w-5 h-5" />, label: "Profile" });
-  
-  if (state?.roadmap) {
-    links.push({ to: "/analytics", icon: <BarChart3 className="w-5 h-5" />, label: "Analytics" });
+    if (state?.roadmap) {
+      links.push({ to: "/analytics", icon: <BarChart3 className="w-5 h-5" />, label: "Analytics" });
+    }
   }
 
   // Calculate overall roadmap progress
@@ -84,9 +93,10 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
         {/* Nav Links */}
         <nav className="flex-1 py-6 px-3 space-y-1 overflow-y-auto">
           {links.map((link) => {
-            const isActive = link.to === "/app"
+            const linkPath = link.to.split("?")[0];
+            const isActive = linkPath === "/app"
               ? location.pathname === "/app" || location.pathname.startsWith("/topic/")
-              : location.pathname === link.to;
+              : location.pathname === linkPath;
             return (
               <Link
                 key={link.to}
@@ -205,9 +215,10 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
       >
         <div className="flex items-center justify-around px-2 py-2">
           {links.map((link) => {
-            const isActive = link.to === "/app"
+            const linkPath = link.to.split("?")[0];
+            const isActive = linkPath === "/app"
               ? location.pathname === "/app" || location.pathname.startsWith("/topic/")
-              : location.pathname === link.to;
+              : location.pathname === linkPath;
             return (
               <Link
                 key={link.to}
