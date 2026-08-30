@@ -10,24 +10,34 @@ import type {
   MCQQuestion,
   QuestionResult,
 } from "./types";
+import { getAuth } from "./session";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 export class ApiError extends Error {
   status: number;
+  detail: string;
 
   constructor(status: number, message: string) {
     super(message);
     this.status = status;
+    this.detail = message;
     this.name = "ApiError";
   }
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+  const headers = new Headers(options?.headers);
+  if (!(options?.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json");
+  }
+  // Attach the access token so the backend can enforce session ownership.
+  // Guests (no token) still use the open /session flow.
+  const auth = getAuth();
+  if (auth?.access_token) {
+    headers.set("Authorization", `Bearer ${auth.access_token}`);
+  }
+  const res = await fetch(`${BASE_URL}${path}`, { ...options, headers });
   if (!res.ok) {
     const body = await res.text();
     throw new ApiError(res.status, body || res.statusText);
@@ -39,6 +49,7 @@ interface AuthResponse {
   user_id: string;
   username: string;
   session_id: string;
+  access_token?: string;
 }
 
 export function signup(username: string, password: string): Promise<AuthResponse> {
@@ -47,6 +58,10 @@ export function signup(username: string, password: string): Promise<AuthResponse
 
 export function login(username: string, password: string): Promise<AuthResponse> {
   return request("/auth/login", { method: "POST", body: JSON.stringify({ username, password }) });
+}
+
+export function createGuestSession(): Promise<{ session_id: string; state: AppState }> {
+  return request("/session", { method: "POST" });
 }
 
 export function getState(sessionId: string): Promise<{ state: AppState }> {
@@ -135,13 +150,6 @@ export function editRoadmapNode(
   return request(`/roadmap/node/${nodeId}`, {
     method: "PATCH",
     body: JSON.stringify({ session_id: sessionId, ...update }),
-  });
-}
-
-export function deleteRoadmapNode(sessionId: string, nodeId: string): Promise<{ state: AppState }> {
-  return request(`/roadmap/node/${nodeId}/delete`, {
-    method: "POST",
-    body: JSON.stringify({ session_id: sessionId }),
   });
 }
 
@@ -284,6 +292,7 @@ export interface ProfileUpdate {
   hobbies?: string[];
   certifications?: string[];
   extra_info?: string;
+  roadmap_instructions?: string;
 }
 
 export function updateProfile(sessionId: string, update: ProfileUpdate): Promise<{ state: AppState }> {
@@ -319,25 +328,49 @@ export function getAnalytics(sessionId: string): Promise<AnalyticsResponse> {
   return request(`/analytics/${sessionId}`);
 }
 
-export async function uploadResume(sessionId: string, file: File): Promise<{ state: AppState; extraction_warning?: string }> {
+export async function uploadResume(sessionId: string, file: File): Promise<{ state: AppState }> {
   // Not routed through request() - a multipart body needs the browser to set
   // its own Content-Type boundary, not the fixed "application/json" header.
   const formData = new FormData();
   formData.append("session_id", sessionId);
   formData.append("file", file);
 
-  const res = await fetch(`${BASE_URL}/profile/resume`, { method: "POST", body: formData });
+  const headers = new Headers();
+  const auth = getAuth();
+  if (auth?.access_token) {
+    headers.set("Authorization", `Bearer ${auth.access_token}`);
+  }
+  const res = await fetch(`${BASE_URL}/profile/resume`, { method: "POST", headers, body: formData });
   if (!res.ok) {
     const body = await res.text();
     throw new ApiError(res.status, body || res.statusText);
   }
-  return res.json() as Promise<{ state: AppState; extraction_warning?: string }>;
+  return res.json() as Promise<{ state: AppState }>;
 }
 
 // Not routed through request() - this is opened directly in a new tab
-// (<a href>), not fetched as JSON.
+// (<a href>), not fetched as JSON. Kept for compatibility (URL still works
+// via the token query-param fallback on the backend), but prefer
+// getResumeFile() below which attaches the Authorization header.
 export function resumeFileUrl(sessionId: string): string {
   return `${BASE_URL}/profile/resume/file/${sessionId}`;
+}
+
+// Fetches the resume as a PDF blob with the Authorization header attached, so
+// strict session-ownership enforcement doesn't break viewing. Callers open
+// it via URL.createObjectURL(blob).
+export async function getResumeFile(sessionId: string): Promise<Blob> {
+  const headers = new Headers();
+  const auth = getAuth();
+  if (auth?.access_token) {
+    headers.set("Authorization", `Bearer ${auth.access_token}`);
+  }
+  const res = await fetch(`${BASE_URL}/profile/resume/file/${sessionId}`, { headers });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new ApiError(res.status, body || res.statusText);
+  }
+  return res.blob();
 }
 
 export function getDueReviews(sessionId: string): Promise<{ due: DueReview[] }> {

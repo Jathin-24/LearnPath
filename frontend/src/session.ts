@@ -1,9 +1,10 @@
 const AUTH_KEY = "learning_path_auth";
 
 export interface AuthInfo {
-  user_id: string;
-  username: string;
+  user_id: string | null;
+  username: string | null;
   session_id: string;
+  access_token?: string;
 }
 
 export function getAuth(): AuthInfo | null {

@@ -15,7 +15,7 @@ export type ConceptStatus = "known" | "claimed_unconfirmed" | "gap" | "learned";
 
 export type PathType = "path_a_dataset" | "path_b_open_web" | "mixed";
 
-export type NodeStatus = "locked" | "available" | "in_progress" | "complete";
+export type NodeStatus = "locked" | "available" | "in_progress" | "complete" | "skipped";
 
 export type AgentName =
   | "orchestrator"
@@ -100,6 +100,10 @@ export interface WebResource {
   title: string;
   url: string;
   snippet: string;
+  source_type?: string;
+  score?: number | null;
+  published_date?: string | null;
+  reason?: string | null;
 }
 
 export interface Subtopic {
@@ -226,3 +230,8 @@ export interface AnalyticsResponse {
   per_topic_time: PerTopicTime[];
   skill_summary: SkillSummary;
 }
+
+export interface ApiErrorResponse {
+  detail: string;
+}
+

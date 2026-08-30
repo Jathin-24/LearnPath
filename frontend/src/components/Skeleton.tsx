@@ -3,9 +3,12 @@ interface Props {
 }
 
 export function SkeletonBlock({ className = "" }: Props) {
-  return <div className={`skeleton ${className}`} />;
+  return <div className={`skeleton rounded-md ${className}`} />;
 }
 
+// A generic "page is loading" skeleton - a header line plus a few card
+// placeholders, close enough to most pages' real layout to avoid a jarring
+// pop-in once content arrives.
 export default function PageSkeleton() {
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-6 py-8">

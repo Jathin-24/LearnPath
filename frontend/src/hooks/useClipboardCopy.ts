@@ -7,13 +7,9 @@ export function useClipboardCopy(resetMs = 2000) {
   const [copied, setCopied] = useState(false);
 
   async function copy(text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), resetMs);
-    } catch {
-      // Clipboard API unavailable (HTTP, permission denied) - fail silently
-    }
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), resetMs);
   }
 
   return { copied, copy };

@@ -1,42 +1,31 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { confirmRoadmap, explainNode, getState, modifyRoadmap } from "../api";
-import { Button, Card, Textarea } from "../components/nb";
+﻿import { useState } from "react";
+// No useNavigate
+import { confirmRoadmap, explainNode, modifyRoadmap } from "../api";
 import BuildingIndicator from "../components/BuildingIndicator";
-import NavBar from "../components/NavBar";
 import RoadmapGraph from "../components/RoadmapGraph";
 import RoadmapList from "../components/RoadmapList";
 import PageSkeleton from "../components/Skeleton";
-import { getSessionId } from "../session";
-import type { AppState, RoadmapNode } from "../types";
+import { useAppState } from "../context/AppStateContext";
+import type { RoadmapNode } from "../types";
+import { Link } from "react-router-dom";
+import { ChevronLeft } from "lucide-react";
 
 export default function RoadmapReview() {
-  const navigate = useNavigate();
-  const sessionId = getSessionId();
-  const [state, setState] = useState<AppState | null>(null);
+  const { state, updateState, auth } = useAppState();
+  const sessionId = auth?.session_id;
   const [view, setView] = useState<"graph" | "list">("graph");
   const [selected, setSelected] = useState<RoadmapNode | null>(null);
   const [explanation, setExplanation] = useState<string | null>(null);
   const [explaining, setExplaining] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [confirmError, setConfirmError] = useState<string | null>(null);
   const [modifying, setModifying] = useState(false);
   const [showModifyBox, setShowModifyBox] = useState(false);
   const [modifyText, setModifyText] = useState("");
   const [modifyError, setModifyError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!sessionId) {
-      navigate("/login", { replace: true });
-      return;
-    }
-    getState(sessionId).then(({ state }) => setState(state)).catch(() => navigate("/login", { replace: true }));
-  }, [sessionId, navigate]);
-
   if (!sessionId || !state || !state.roadmap) {
     return (
-      <div className="min-h-screen bg-bg text-fg">
-        <NavBar hasRoadmap />
+      <div className="min-h-screen bg-slate-950 text-slate-100">
         <PageSkeleton />
       </div>
     );
@@ -62,12 +51,11 @@ export default function RoadmapReview() {
 
   async function handleConfirm() {
     setConfirming(true);
-    setConfirmError(null);
     try {
-      await confirmRoadmap(sessionId!);
-      navigate("/dashboard");
+      const { state: newState } = await confirmRoadmap(sessionId!);
+      updateState(newState);
+      // StageRouter will navigate automatically based on new stage
     } catch {
-      setConfirmError("Couldn't confirm roadmap - try again.");
       setConfirming(false);
     }
   }
@@ -78,7 +66,7 @@ export default function RoadmapReview() {
     setModifyError(null);
     try {
       const { state: newState } = await modifyRoadmap(sessionId, modifyText.trim());
-      setState(newState);
+      updateState(newState);
       setSelected(null);
       setShowModifyBox(false);
       setModifyText("");
@@ -90,29 +78,31 @@ export default function RoadmapReview() {
   }
 
   return (
-    <div className="min-h-screen bg-bg text-fg">
-      <NavBar hasRoadmap />
+    <div className="min-h-screen bg-slate-950 text-slate-100">
       <div className="mx-auto max-w-5xl px-6 py-8">
+        <Link to="/app" className="flex items-center gap-1 text-sm font-medium text-slate-400 hover:text-white transition mb-4">
+          <ChevronLeft className="w-4 h-4" /> Back to Dashboard
+        </Link>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Your Roadmap</h1>
-            <p className="mt-1 text-sm text-fg-secondary">
-              {roadmap.nodes.length} topics, sequenced by prerequisite. Click a topic to see why it's here.
+            <h1 className="text-2xl font-bold font-display">Your personalized path</h1>
+            <p className="mt-1 text-sm text-slate-400">
+              {roadmap.nodes.length} topics â€¢ {roadmap.nodes.reduce((acc, n) => acc + n.estimated_days, 0)} days total â€¢ Path {roadmap.path_type === "path_a_dataset" ? "A" : "B"}
             </p>
           </div>
-          <div className="flex border border-border rounded-lg overflow-hidden">
+          <div className="flex shrink-0 gap-1 rounded-full bg-slate-900 p-1">
             <button
               onClick={() => setView("graph")}
-              className={`px-3 py-1 text-xs font-medium transition-colors ${
-                view === "graph" ? "bg-fg text-white dark:bg-accent dark:text-[#0A0A0A]" : "bg-surface text-fg-secondary hover:bg-bg-secondary"
+              className={`rounded-full px-3 py-1 text-xs font-medium ${
+                view === "graph" ? "bg-slate-100 text-slate-900" : "text-slate-400"
               }`}
             >
               Graph
             </button>
             <button
               onClick={() => setView("list")}
-              className={`px-3 py-1 text-xs font-medium transition-colors border-l border-border ${
-                view === "list" ? "bg-fg text-white dark:bg-accent dark:text-[#0A0A0A]" : "bg-surface text-fg-secondary hover:bg-bg-secondary"
+              className={`rounded-full px-3 py-1 text-xs font-medium ${
+                view === "list" ? "bg-slate-100 text-slate-900" : "text-slate-400"
               }`}
             >
               List
@@ -133,79 +123,77 @@ export default function RoadmapReview() {
                 nodes={roadmap.nodes}
                 onNodeClick={handleNodeClick}
                 sessionId={sessionId}
-                onChanged={setState}
+                onChanged={updateState}
+                editable={state.stage === "roadmap_review"}
               />
             )}
           </div>
         )}
 
         {selected && (
-          <Card className="mt-4">
-            <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-2">Topic Details</p>
+          <div className="mt-4 rounded-xl border border-slate-800 bg-slate-900 p-4">
             <h2 className="text-lg font-semibold">{selected.topic}</h2>
             {selected.course_summary && (
-              <p className="mt-2 text-sm text-fg-secondary">{selected.course_summary}</p>
+              <p className="mt-1 text-sm text-slate-400">{selected.course_summary}</p>
             )}
-            <div className="mt-3 p-3 rounded-lg bg-bg-secondary">
-              <p className="text-sm text-fg-secondary">
-                {explaining ? "Thinking..." : explanation}
-              </p>
-            </div>
-          </Card>
+            <p className="mt-3 text-sm text-slate-100">
+              {explaining ? "Thinking..." : explanation}
+            </p>
+          </div>
         )}
 
         {showModifyBox && (
-          <Card className="mt-6">
-            <p className="text-xs font-medium text-fg-muted uppercase tracking-wider mb-2">Modify with AI</p>
-            <label className="mb-2 block text-sm font-medium">
+          <div className="mt-6 rounded-xl border border-slate-800 bg-slate-900 p-4">
+            <label className="mb-2 block text-sm font-semibold text-slate-400">
               What would you like to change?
             </label>
-            <Textarea
+            <textarea
               value={modifyText}
               onChange={(e) => setModifyText(e.target.value)}
               rows={3}
               placeholder="e.g. 'Skip anything about mobile, add more on databases, keep it under 3 months'"
+              className="w-full resize-y rounded-md bg-slate-950 p-3 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-slate-400"
             />
             <div className="mt-3 flex items-center gap-2">
-              <Button
+              <button
                 onClick={handleModify}
                 disabled={modifying || !modifyText.trim()}
+                className="rounded-full bg-slate-100 px-5 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-200 disabled:opacity-50"
               >
                 {modifying ? "Rebuilding..." : "Rebuild Roadmap"}
-              </Button>
-              <Button
-                variant="ghost"
+              </button>
+              <button
                 onClick={() => {
                   setShowModifyBox(false);
                   setModifyText("");
                   setModifyError(null);
                 }}
                 disabled={modifying}
+                className="rounded-full bg-slate-800 px-4 py-2 text-sm text-slate-400 transition hover:bg-slate-700"
               >
                 Cancel
-              </Button>
+              </button>
             </div>
-            {modifyError && <p className="mt-2 text-sm text-danger">{modifyError}</p>}
-          </Card>
+            {modifyError && <p className="mt-2 text-sm text-red-400">{modifyError}</p>}
+          </div>
         )}
 
         <div className="mt-6 flex flex-wrap items-center gap-3">
-          <Button
-            size="lg"
+          <button
             onClick={handleConfirm}
             disabled={confirming || modifying}
+            className="rounded-full bg-slate-100 px-8 py-3 text-lg font-semibold text-slate-900 transition hover:bg-slate-200 disabled:opacity-50"
           >
-            {confirming ? "Confirming..." : "Confirm Roadmap →"}
-          </Button>
-          {confirmError && <p className="w-full text-sm text-danger">{confirmError}</p>}
-          {!showModifyBox && (
-            <Button
-              variant="secondary"
+            {confirming ? "Confirming..." : "Start Learning"}
+          </button>
+          {!showModifyBox && state.stage === "roadmap_review" && (
+            <button
               onClick={() => setShowModifyBox(true)}
               disabled={confirming || modifying}
+              className="rounded-full bg-slate-800 px-5 py-3 text-sm font-medium text-slate-400 transition hover:bg-slate-700 disabled:opacity-50"
             >
-              Modify with AI ✨
-            </Button>
+              âœ¨ Modify with AI
+            </button>
           )}
         </div>
       </div>

@@ -1,81 +1,51 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { motion, AnimatePresence, type Variants } from "framer-motion";
+﻿import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import {
-  addRoadmapNode,
+  Flame, Clock, Target, Play, CheckCircle2, MessageSquare, Route, Shield, Award, Activity, Zap, MoveRight
+} from "lucide-react";
+import {
   generateReviewQuestion,
-  getAnalytics,
   getDashboard,
   getDueReviews,
-  getState,
   regenerateRoadmap,
   submitReview,
 } from "../api";
-import { Button, Card, Input, Textarea, Badge } from "../components/nb";
 import BuildingIndicator from "../components/BuildingIndicator";
-import NavBar from "../components/NavBar";
-import RoadmapGraph from "../components/RoadmapGraph";
-import RoadmapList from "../components/RoadmapList";
+import RoadmapPath from "../components/RoadmapPath";
 import PageSkeleton from "../components/Skeleton";
-import SkillRadarChart from "../components/SkillRadarChart";
-import { getSessionId } from "../session";
-import type { AnalyticsResponse, AppState, DashboardResponse, DueReview, MCQQuestion, QuestionResult } from "../types";
-
-const containerVariants: Variants = {
-  hidden: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: { staggerChildren: 0.06, delayChildren: 0.1 },
-  },
-};
-
-const itemVariants: Variants = {
-  hidden: { opacity: 0, y: 12 },
-  visible: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" } },
-};
+import { useAppState } from "../context/AppStateContext";
+import { useToast } from "../context/ToastContext";
+import type { DashboardResponse, DueReview, MCQQuestion, QuestionResult } from "../types";
 
 export default function Dashboard() {
-  const navigate = useNavigate();
-  const sessionId = getSessionId();
+  const { state, updateState, auth, setTutorOpen, refreshState } = useAppState();
+  const { toast } = useToast();
+  const sessionId = auth?.session_id;
+    
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
-  const [state, setState] = useState<AppState | null>(null);
-  const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
-  const [view, setView] = useState<"graph" | "list">("graph");
   const [regenerating, setRegenerating] = useState(false);
   const [showRegenerateBox, setShowRegenerateBox] = useState(false);
   const [regenerateText, setRegenerateText] = useState("");
-  const [addingTopic, setAddingTopic] = useState(false);
-  const [newTopic, setNewTopic] = useState("");
-  const [savingTopic, setSavingTopic] = useState(false);
 
   const [dueReviews, setDueReviews] = useState<DueReview[]>([]);
   const [activeReview, setActiveReview] = useState<DueReview | null>(null);
   const [reviewQuestion, setReviewQuestion] = useState<{ index: number; question: MCQQuestion } | null>(null);
   const [reviewAnswer, setReviewAnswer] = useState("");
-  const [reviewResult, setReviewResult] = useState<{ correct: boolean; result: QuestionResult } | null>(null);
+  const [reviewResult, setReviewResult] = useState<{ correct: boolean; result: QuestionResult; next_review_at: string | null } | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
-  const [now] = useState(() => Date.now());
 
   useEffect(() => {
-    if (!sessionId) {
-      navigate("/login", { replace: true });
-      return;
-    }
-    Promise.all([getDashboard(sessionId), getState(sessionId), getDueReviews(sessionId)]).then(
-      ([dashboardRes, stateRes, reviewsRes]) => {
+    if (!sessionId) return;
+    
+    Promise.all([getDashboard(sessionId), getDueReviews(sessionId)]).then(
+      ([dashboardRes, reviewsRes]) => {
         setDashboard(dashboardRes);
-        setState(stateRes.state);
         setDueReviews(reviewsRes.due);
-        if (dashboardRes.percent_complete >= 100) {
-          navigate("/complete", { replace: true });
-        }
       },
     );
-    getAnalytics(sessionId)
-      .then(setAnalytics)
-      .catch(() => setAnalytics(null));
-  }, [sessionId, navigate]);
+  }, [sessionId]);
 
+  // Review handlers
   async function handleStartReview(review: DueReview) {
     if (!sessionId) return;
     setActiveReview(review);
@@ -88,6 +58,7 @@ export default function Dashboard() {
       setReviewQuestion({ index: res.question_index, question: res.question });
     } catch {
       setActiveReview(null);
+      toast("Failed to load review question.", "error");
     } finally {
       setReviewBusy(false);
     }
@@ -98,9 +69,13 @@ export default function Dashboard() {
     setReviewBusy(true);
     try {
       const res = await submitReview(sessionId, activeReview.node_id, reviewQuestion.index, reviewAnswer);
-      setReviewResult({ correct: res.correct, result: res.result });
-      setDueReviews((prev) => prev.filter((r) => r.node_id !== activeReview.node_id));
+      setReviewResult({ correct: res.correct, result: res.result, next_review_at: res.next_review_at });
+      if (res.correct) {
+          setDueReviews((prev) => prev.filter((r) => r.node_id !== activeReview.node_id));
+      }
+      await refreshState();
     } catch {
+      toast("Failed to submit review.", "error");
     } finally {
       setReviewBusy(false);
     }
@@ -110,384 +85,429 @@ export default function Dashboard() {
     if (!sessionId) return;
     setRegenerating(true);
     try {
-      const { state: newState } = await regenerateRoadmap(sessionId, regenerateText.trim() || undefined);
-      setState(newState);
+      // Instructions specify not regenerating completed. Backend or prompt text will handle it.
+      const fullInstructions = `Do NOT change or regenerate any nodes that are already marked as "complete". ${regenerateText.trim()}`;
+      const { state: newState } = await regenerateRoadmap(sessionId, fullInstructions);
+      updateState(newState);
       setShowRegenerateBox(false);
       setRegenerateText("");
+      toast("Roadmap regenerated successfully.", "success");
     } catch {
+      toast("Failed to regenerate roadmap.", "error");
     } finally {
       setRegenerating(false);
     }
   }
 
-  async function handleAddTopic() {
-    if (!sessionId || !newTopic.trim()) return;
-    setSavingTopic(true);
-    try {
-      const { state: newState } = await addRoadmapNode(sessionId, newTopic.trim());
-      setState(newState);
-      setNewTopic("");
-      setAddingTopic(false);
-    } catch {
-    } finally {
-      setSavingTopic(false);
-    }
-  }
-
   if (!sessionId || !dashboard || !state) {
     return (
-      <div className="min-h-screen bg-bg text-fg">
-        <NavBar />
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
         <PageSkeleton />
       </div>
     );
   }
 
-  const availableNode = state.roadmap?.nodes.find((n) => n.status === "available");
-  const completableNodes = state.roadmap?.nodes.filter((n) => n.assessment !== null) ?? [];
+  const { roadmap, learner_profile, skill_gap_map } = state;
+  const nodes = roadmap?.nodes ?? [];
+  const completableNodes = nodes.filter((n) => n.assessment !== null) ?? [];
   const completedNodes = completableNodes.filter((n) => n.status === "complete");
-  const totalTimeSeconds = completableNodes.reduce((sum, n) => sum + n.time_spent_seconds, 0);
-  const totalHours = Math.floor(totalTimeSeconds / 3600);
-  const totalMinutes = Math.round((totalTimeSeconds % 3600) / 60);
-  const timeLabel = totalHours > 0 ? `${totalHours}h ${totalMinutes}m` : `${totalMinutes}m`;
+  
+  // Available node is the one we want to "Continue Learning"
+  const availableNode = dashboard.current_node || nodes.find(n => n.status === "available" || n.status === "in_progress");
 
-  const lastTs = state.progress_log.at(-1)?.timestamp;
-  const daysSinceActivity = lastTs
-    ? (now - new Date(lastTs).getTime()) / (1000 * 60 * 60 * 24)
-    : 0;
-  const showReminder = daysSinceActivity >= 1;
+  // "What's next" helper logic
+  const currentNodeIdx = availableNode ? nodes.findIndex((n) => n.node_id === availableNode.node_id) : -1;
+  const nextNodeAfter = currentNodeIdx >= 0 ? nodes[currentNodeIdx + 1] ?? null : null;
+  const currentDone = (availableNode?.status ?? null) === "complete";
+  const allTopicsDone = nodes.length > 0 && nodes.every((n) => n.status === "complete");
+  const showWhatsNext = allTopicsDone || (currentDone && !!nextNodeAfter);
+
+  // Calculate Subtopic Progress for Available Node
+  const subtopics = availableNode?.subtopics ?? [];
+  const completedSubtopics = subtopics.filter(s => s.status === "passed").length;
+  
+  // Time formatting
+  const timeSpentSeconds = availableNode?.time_spent_seconds ?? 0;
+  const hours = Math.floor(timeSpentSeconds / 3600);
+  const minutes = Math.floor((timeSpentSeconds % 3600) / 60);
+  const formattedTime = hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+
+  // Skill Overview counts
+  const assessments = skill_gap_map?.assessments ?? [];
+  const skillsCount = {
+    known: assessments.filter(a => a.status === "known").length,
+    learned: assessments.filter(a => a.status === "learned").length,
+    claimed_unconfirmed: assessments.filter(a => a.status === "claimed_unconfirmed").length,
+    gap: assessments.filter(a => a.status === "gap").length,
+  };
+  const totalSkills = assessments.length || 1; // avoid division by zero
 
   return (
-    <div className="min-h-screen bg-bg text-fg">
-      <NavBar hasRoadmap />
-      <motion.div
-        variants={containerVariants}
-        initial="hidden"
-        animate="visible"
-        className="mx-auto max-w-6xl space-y-5 px-6 py-6"
-      >
-        <AnimatePresence>
-          {showReminder && (
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className="flex items-center gap-3 px-4 py-3 rounded-lg bg-accent/10 border border-accent/20 text-sm"
-            >
-              <span className="text-accent">→</span>
-              <span>Welcome back! It's been {Math.floor(daysSinceActivity)} day{Math.floor(daysSinceActivity) === 1 ? "" : "s"} since your last activity.</span>
-            </motion.div>
-          )}
-        </AnimatePresence>
+    <div className="min-h-screen bg-slate-950 text-slate-100 pb-24 font-sans">
+      <div className="mx-auto max-w-7xl px-4 py-8 relative">
+        {/* Background glow effects */}
 
-        <AnimatePresence>
-          {dueReviews.length > 0 && !activeReview && (
-            <motion.div variants={itemVariants}>
-              <Card className="border-accent/20 bg-accent/5">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-medium text-fg-secondary mb-0.5">SPACED REPETITION</p>
-                    <p className="text-sm text-fg-secondary">
-                      {dueReviews.length} topic{dueReviews.length === 1 ? "" : "s"} due for review
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    {dueReviews.slice(0, 3).map((review) => (
-                      <Button
-                        key={review.node_id}
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => handleStartReview(review)}
-                      >
-                        {review.topic}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              </Card>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <div className="relative z-10 flex flex-col gap-8 md:grid md:grid-cols-12 md:items-start">
+          
+          {/* Main Column (Prioritized on Mobile) */}
+          <div className="md:col-span-7 flex flex-col gap-8 order-1">
+            
+            {/* Section 1: Welcome Header */}
+            <div className="space-y-2 animate-fade-in-up">
+              <h1 className="text-3xl font-bold font-display text-slate-100 tracking-tight">
+                Welcome back, {learner_profile.name || "Learner"}!
+              </h1>
+              {learner_profile.goal && (
+                <p className="text-slate-200/80 text-sm font-medium">Goal: {learner_profile.goal}</p>
+              )}
+            </div>
 
-        <AnimatePresence>
-          {activeReview && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              <Card>
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-sm font-semibold">
-                    Review: {activeReview.topic}
-                  </h2>
-                  <Button variant="ghost" size="sm" onClick={() => setActiveReview(null)}>
-                    Close
-                  </Button>
-                </div>
-                {reviewBusy && !reviewQuestion && (
-                  <BuildingIndicator label="Loading question..." />
-                )}
-                {reviewQuestion && !reviewResult && (
-                  <div className="space-y-3">
-                    <p className="text-sm font-medium">{reviewQuestion.question.question}</p>
-                    <div className="space-y-2">
-                      {reviewQuestion.question.options.map((option) => (
-                        <label
-                          key={option}
-                          className={`flex cursor-pointer items-center gap-3 border rounded-lg px-3 py-2.5 text-sm transition-all duration-150 ${
-                            reviewAnswer === option
-                              ? "border-accent bg-accent/5"
-                              : "border-border hover:border-border-strong"
-                          }`}
-                        >
-                          <input
-                            type="radio"
-                            name="review-answer"
-                            checked={reviewAnswer === option}
-                            onChange={() => setReviewAnswer(option)}
-                            className="accent-accent"
-                          />
-                          {option}
-                        </label>
-                      ))}
+            {/* Section 2: Continue Learning */}
+            {availableNode && (
+              <div className="glass-panel relative overflow-hidden rounded-3xl p-6 md:p-8 animate-fade-in-up border border-slate-400/30 group shadow-lg shadow-slate-950/50" style={{ animationDelay: "0.1s" }}>
+                <div className="absolute inset-0 bg-gradient-to-br from-slate-400/20 to-slate-500/20 opacity-50 group-hover:opacity-100 transition-opacity duration-700" />
+                <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+                  <div className="space-y-4">
+                    <div className="inline-flex items-center gap-2 rounded-full bg-slate-400/20 px-3 py-1 border border-slate-400/40">
+                      <Target className="w-4 h-4 text-slate-300" />
+                      <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Current Topic</span>
                     </div>
-                    <Button
-                      onClick={handleSubmitReview}
-                      disabled={!reviewAnswer || reviewBusy}
-                      size="sm"
-                    >
-                      {reviewBusy ? "Checking..." : "Submit"}
-                    </Button>
+                    <h2 className="text-2xl md:text-3xl font-bold font-display text-slate-100">{availableNode.topic}</h2>
+                    <div className="flex flex-wrap items-center gap-4 text-sm font-medium text-slate-400">
+                      <span className="flex items-center gap-1.5 bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-800"><Clock className="w-4 h-4 text-slate-300" /> ~{availableNode.estimated_days} days</span>
+                      <span className="flex items-center gap-1.5 bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-800"><Activity className="w-4 h-4 text-slate-300" /> {completedSubtopics}/{subtopics.length} Subtopics</span>
+                      {timeSpentSeconds > 60 && (
+                        <span className="flex items-center gap-1.5 bg-slate-800 px-3 py-1.5 rounded-lg border border-slate-800">Spent: {formattedTime}</span>
+                      )}
+                    </div>
                   </div>
-                )}
-                {reviewResult && (
-                  <div>
-                    <Badge variant={reviewResult.correct ? "success" : "danger"}>
-                      {reviewResult.correct ? "Correct" : "Incorrect"}
-                    </Badge>
-                    {!reviewResult.correct && (
-                      <p className="mt-2 text-xs text-fg-secondary">
-                        {reviewResult.result.correct_answer} — {reviewResult.result.explanation}
-                      </p>
-                    )}
-                    <Button variant="ghost" size="sm" className="mt-3" onClick={() => setActiveReview(null)}>
-                      Done
-                    </Button>
-                  </div>
-                )}
-              </Card>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <motion.div variants={itemVariants} className="grid gap-5 md:grid-cols-[2fr_1fr]">
-          <Card>
-            <div className="flex flex-wrap items-end justify-between gap-4">
-              <div>
-                <p className="text-[11px] font-medium text-fg-muted uppercase tracking-wider">Progress</p>
-                <p className="text-sm text-fg-secondary mt-1">
-                  {completedNodes.length} of {completableNodes.length} topics
-                </p>
-              </div>
-              <p className="text-3xl font-bold tracking-tight">
-                {dashboard.percent_complete}%
-              </p>
-            </div>
-            <div className="mt-3 h-1.5 w-full rounded-full bg-bg-secondary overflow-hidden">
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: `${dashboard.percent_complete}%` }}
-                transition={{ duration: 0.8, ease: "easeOut" }}
-                className="h-full bg-accent rounded-full"
-              />
-            </div>
-            <Link to="/analytics">
-              <Button variant="ghost" size="sm" className="mt-2">
-                View analytics →
-              </Button>
-            </Link>
-          </Card>
-
-          <Card>
-            <p className="text-[11px] font-medium text-fg-muted uppercase tracking-wider mb-2">Current Topic</p>
-            <p className="text-lg font-semibold">
-              {availableNode ? availableNode.topic : "—"}
-            </p>
-            {availableNode && (
-              <Link to={`/topic/${availableNode.node_id}`}>
-                <Button size="sm" className="mt-3">
-                  Continue →
-                </Button>
-              </Link>
-            )}
-          </Card>
-        </motion.div>
-
-        <motion.div variants={itemVariants} className="grid gap-5 sm:grid-cols-3">
-          <Card>
-            <p className="text-[11px] font-medium text-fg-muted uppercase tracking-wider">Completed</p>
-            <p className="mt-2 text-2xl font-bold">
-              {completedNodes.length}
-              <span className="text-sm text-fg-muted font-normal"> / {completableNodes.length}</span>
-            </p>
-          </Card>
-          <Card>
-            <p className="text-[11px] font-medium text-fg-muted uppercase tracking-wider">Time</p>
-            <p className="mt-2 text-2xl font-bold">{timeLabel}</p>
-          </Card>
-          <Card>
-            <p className="text-[11px] font-medium text-fg-muted uppercase tracking-wider">Streak</p>
-            <p className="mt-2 text-2xl font-bold">
-              {dashboard.current_streak_days}d
-            </p>
-            <p className="text-[11px] text-fg-muted mt-0.5">Best: {dashboard.longest_streak_days}d</p>
-          </Card>
-        </motion.div>
-
-        {analytics && (
-          <motion.div variants={itemVariants} className="grid gap-5 sm:grid-cols-4">
-            <Card>
-              <p className="text-[11px] font-medium text-fg-muted uppercase tracking-wider">Pass Rate</p>
-              <p className="mt-2 text-lg font-bold">{Math.round(analytics.quiz_pass_rate * 100)}%</p>
-            </Card>
-            <Card>
-              <p className="text-[11px] font-medium text-fg-muted uppercase tracking-wider">This Week</p>
-              <p className="mt-2 text-lg font-bold">{analytics.topics_completed_this_week}</p>
-            </Card>
-            <Card>
-              <p className="text-[11px] font-medium text-fg-muted uppercase tracking-wider">Avg Score</p>
-              <p className="mt-2 text-lg font-bold">{Math.round(analytics.average_score)}%</p>
-            </Card>
-            <Card>
-              <p className="text-[11px] font-medium text-fg-muted uppercase tracking-wider">Badges</p>
-              <div className="mt-2 flex flex-wrap gap-1">
-                {dashboard.badges.map((badge) => (
-                  <span
-                    key={badge.id}
-                    title={badge.label}
-                    className={`text-base ${badge.achieved ? "" : "opacity-20"}`}
+                  <Link
+                    to={`/topic/${availableNode.node_id}`}
+                    className="shrink-0 flex items-center justify-center gap-2 rounded-2xl bg-slate-100 px-8 py-4 text-base font-bold text-slate-900 transition-all hover:bg-slate-200 hover:scale-105 shadow-[0_0_30px_rgba(148,163,184,0.35)] active:scale-95"
                   >
-                    {badge.icon}
-                  </span>
-                ))}
-              </div>
-            </Card>
-          </motion.div>
-        )}
-
-        <motion.div variants={itemVariants} className="grid gap-5 md:grid-cols-2">
-          <Card>
-            <p className="text-[11px] font-medium text-fg-muted uppercase tracking-wider mb-3">Skills</p>
-            <SkillRadarChart skillRadar={dashboard.skill_radar} />
-          </Card>
-          <Card>
-            <p className="text-[11px] font-medium text-fg-muted uppercase tracking-wider mb-2">AI Insight</p>
-            <p className="text-sm text-fg-secondary leading-relaxed">{dashboard.next_recommended_action}</p>
-            {availableNode && (
-              <Link to={`/topic/${availableNode.node_id}`}>
-                <Button variant="secondary" size="sm" className="mt-3">
-                  Start '{availableNode.topic}' →
-                </Button>
-              </Link>
-            )}
-          </Card>
-        </motion.div>
-
-        {state.roadmap && (
-          <motion.div variants={itemVariants}>
-            <Card>
-              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-                <p className="text-[11px] font-medium text-fg-muted uppercase tracking-wider">Roadmap</p>
-                <div className="flex flex-wrap items-center gap-2">
-                  {regenerating && <BuildingIndicator label="Regenerating..." />}
-                  <Button variant="secondary" size="sm" onClick={() => setAddingTopic((v) => !v)}>
-                    + Add Topic
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => setShowRegenerateBox((v) => !v)}
-                    disabled={regenerating}
-                  >
-                    Regenerate
-                  </Button>
-                  <div className="flex border border-border rounded-md overflow-hidden">
-                    <button
-                      onClick={() => setView("graph")}
-                      className={`px-3 py-1 text-xs font-medium transition-colors ${
-                        view === "graph" ? "bg-fg text-white dark:bg-accent dark:text-[#0A0A0A]" : "text-fg-secondary hover:bg-bg-secondary"
-                      }`}
-                    >
-                      Graph
-                    </button>
-                    <button
-                      onClick={() => setView("list")}
-                      className={`px-3 py-1 text-xs font-medium transition-colors border-l border-border ${
-                        view === "list" ? "bg-fg text-white dark:bg-accent dark:text-[#0A0A0A]" : "text-fg-secondary hover:bg-bg-secondary"
-                      }`}
-                    >
-                      List
-                    </button>
-                  </div>
+                    Continue Learning <Play className="w-5 h-5 fill-current" />
+                  </Link>
                 </div>
               </div>
-              <AnimatePresence>
-                {addingTopic && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="mb-4 flex gap-2 overflow-hidden"
+            )}
+
+            {/* Section 5.5: What's Next helper */}
+            {showWhatsNext && (
+              <div className="glass-panel-light p-6 rounded-3xl border border-emerald-500/20 animate-fade-in-up" style={{ animationDelay: "0.35s" }}>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-5">
+                  <div className="flex items-start gap-3">
+                    <div className="bg-emerald-500/10 p-3 rounded-xl shrink-0">
+                      <CheckCircle2 className="w-6 h-6 text-emerald-400" />
+                    </div>
+                    <div>
+                      {allTopicsDone ? (
+                        <>
+                          <h4 className="font-bold text-slate-100">Roadmap complete. Amazing work!</h4>
+                          <p className="text-sm text-slate-400 mt-0.5">You've mastered every topic. See your achievement summary.</p>
+                        </>
+                      ) : (
+                        <>
+                          <h4 className="font-bold text-slate-100">"{availableNode?.topic}" is complete!</h4>
+                          <p className="text-sm text-slate-400 mt-0.5">Ready for the next step. Great momentum, keep going.</p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <Link
+                    to={allTopicsDone ? "/complete" : `/topic/${nextNodeAfter?.node_id}`}
+                    className="shrink-0 inline-flex items-center justify-center gap-2 rounded-xl bg-slate-100 px-5 py-2.5 text-sm font-bold text-slate-900 transition hover:bg-slate-200 hover:gap-3"
                   >
-                    <Input
-                      autoFocus
-                      value={newTopic}
-                      onChange={(e) => setNewTopic(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && handleAddTopic()}
-                      placeholder="e.g. GraphQL"
-                    />
-                    <Button size="sm" onClick={handleAddTopic} disabled={savingTopic || !newTopic.trim()}>
-                      {savingTopic ? "..." : "Add"}
-                    </Button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-              <AnimatePresence>
+                    {allTopicsDone ? "View summary" : `Start "${nextNodeAfter?.topic}"`} <MoveRight className="w-4 h-4" />
+                  </Link>
+                </div>
+              </div>
+            )}
+
+            {/* Section 6: Roadmap Overview */}
+            <div className="space-y-4 animate-fade-in-up" style={{ animationDelay: "0.4s" }}>
+              <div className="flex items-center gap-3">
+                <Route className="w-6 h-6 text-slate-300" />
+                <h3 className="text-xl font-bold font-display">Roadmap</h3>
+              </div>
+              <div className="glass-panel-light rounded-3xl border border-slate-800/50 pt-10 pb-4 px-2 sm:px-4">
+                <RoadmapPath nodes={nodes} />
+              </div>
+            </div>
+
+            {/* Section 9: AI Actions */}
+            <div className="grid gap-4 sm:grid-cols-2 animate-fade-in-up" style={{ animationDelay: "0.6s" }}>
+              <button 
+                onClick={() => setTutorOpen(true)}
+                className="flex items-center gap-3 p-4 rounded-2xl glass-panel-light border border-slate-400/20 hover:border-slate-400/50 hover:bg-slate-400/10 transition-all text-left"
+              >
+                <div className="p-3 rounded-xl bg-slate-400/20">
+                  <MessageSquare className="w-6 h-6 text-slate-300" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-slate-100">Ask Tutor</h4>
+                  <p className="text-xs text-slate-400 mt-0.5">Get help with your concepts</p>
+                </div>
+              </button>
+              
+              <div className="relative">
+                <button 
+                  onClick={() => setShowRegenerateBox(!showRegenerateBox)}
+                  className="w-full flex items-center gap-3 p-4 rounded-2xl glass-panel-light border border-slate-400/20 hover:border-slate-400/50 hover:bg-slate-400/10 transition-all text-left"
+                >
+                  <div className="p-3 rounded-xl bg-slate-400/20">
+                    <Zap className="w-6 h-6 text-slate-300" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-slate-100">Regenerate</h4>
+                    <p className="text-xs text-slate-400 mt-0.5">Adjust roadmap direction</p>
+                  </div>
+                </button>
                 {showRegenerateBox && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="mb-4 overflow-hidden"
-                  >
-                    <Textarea
+                  <div className="absolute top-full mt-2 w-full z-20 rounded-2xl border border-slate-400/40 bg-slate-900 p-4 shadow-xl shadow-black">
+                    <label className="mb-2 block text-xs font-semibold text-slate-400">
+                      Give AI instructions to regenerate upcoming topics. (Completed topics will remain).
+                    </label>
+                    <textarea
                       autoFocus
                       value={regenerateText}
                       onChange={(e) => setRegenerateText(e.target.value)}
-                      rows={2}
-                      placeholder="Any changes or additions? (optional)"
+                      rows={3}
+                      placeholder="e.g. Focus more on practical frontend dev..."
+                      className="w-full resize-y rounded-xl bg-slate-950 border border-slate-700 p-3 text-sm text-slate-100 outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-400 transition-all"
                     />
-                    <div className="mt-2 flex gap-2">
-                      <Button size="sm" onClick={handleRegenerateRoadmap} disabled={regenerating}>
-                        {regenerating ? "Working..." : "Regenerate"}
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => setShowRegenerateBox(false)} disabled={regenerating}>
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        onClick={handleRegenerateRoadmap}
+                        disabled={regenerating}
+className="flex-1 rounded-xl bg-slate-100 px-4 py-2 text-sm font-bold text-slate-900 transition hover:bg-slate-200 disabled:opacity-50"
+                        >
+                          {regenerating ? "Working..." : "Confirm"}
+                      </button>
+                      <button
+                        onClick={() => setShowRegenerateBox(false)}
+                        disabled={regenerating}
+                        className="rounded-xl bg-slate-800 border border-slate-700 px-4 py-2 text-sm font-semibold transition hover:bg-slate-700"
+                      >
                         Cancel
-                      </Button>
+                      </button>
                     </div>
-                  </motion.div>
+                  </div>
                 )}
-              </AnimatePresence>
-              {view === "graph" ? (
-                <RoadmapGraph nodes={state.roadmap.nodes} colorByStatus />
+              </div>
+            </div>
+
+          </div>
+
+          {/* Sidebar (Secondary Info, stacked on mobile) */}
+          <div className="md:col-span-5 flex flex-col gap-6 order-2">
+            
+            {/* Section 3: Overall Progress */}
+            <div className="glass-panel-light p-6 rounded-3xl animate-fade-in-up border border-slate-800/50" style={{ animationDelay: "0.2s" }}>
+              <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">Overall Progress</h3>
+              <div className="flex items-end justify-between mb-2">
+                <span className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-slate-300 to-slate-400">
+                  {dashboard.percent_complete}%
+                </span>
+                <span className="text-sm font-medium text-slate-400 mb-1">
+                  {completedNodes.length} / {completableNodes.length} Topics
+                </span>
+              </div>
+              <div className="h-3 w-full bg-slate-900 rounded-full overflow-hidden border border-slate-800">
+                <div 
+                  className="h-full bg-gradient-to-r from-slate-400 to-slate-300 rounded-full shadow-[0_0_10px_rgba(148,163,184,0.4)] transition-all duration-1000"
+                  style={{ width: `${dashboard.percent_complete}%` }}
+                />
+              </div>
+            </div>
+
+            {/* Section 4: Streak */}
+            <div className="relative overflow-hidden p-6 rounded-3xl border border-slate-800 bg-gradient-to-br from-slate-800/60 to-slate-900/60 animate-fade-in-up group" style={{ animationDelay: "0.25s" }}>
+              <div className="absolute top-0 right-0 p-4 opacity-10 transform translate-x-4 -translate-y-4 group-hover:scale-110 transition-transform duration-500">
+                <Flame className="w-32 h-32 text-slate-400" />
+              </div>
+              <div className="relative z-10">
+                <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-2">
+                  <Flame className="w-4 h-4 text-orange-500" /> Current Streak
+                </h3>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-5xl font-black text-slate-100">{dashboard.current_streak_days}</span>
+                  <span className="text-slate-300 font-medium">Days</span>
+                </div>
+                <p className="text-xs text-slate-400/70 mt-2 font-medium">Longest Streak: {dashboard.longest_streak_days} days</p>
+              </div>
+            </div>
+
+            {/* Section 5: Due Reviews */}
+            <div className="glass-panel-light p-6 rounded-3xl border border-amber-500/30 animate-fade-in-up" style={{ animationDelay: "0.3s" }}>
+              <h3 className="text-sm font-bold text-amber-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                <Target className="w-4 h-4" /> Spaced Repetition
+              </h3>
+              
+              {dueReviews.length === 0 && !activeReview ? (
+                <div className="flex flex-col items-center justify-center p-6 text-center">
+                  <div className="bg-emerald-500/10 p-4 rounded-full mb-3">
+                    <CheckCircle2 className="w-8 h-8 text-emerald-400" />
+                  </div>
+                  <h4 className="text-slate-100 font-bold">You're caught up.</h4>
+                  <p className="text-sm text-slate-400 mt-1">No reviews due right now.</p>
+                </div>
+              ) : activeReview ? (
+                 <div className="bg-amber-950/30 p-4 rounded-2xl border border-amber-500/20">
+                   <div className="flex justify-between items-center mb-3">
+                     <h4 className="font-semibold text-amber-200 text-sm">{activeReview.topic}</h4>
+                     <button onClick={() => setActiveReview(null)} className="text-xs text-amber-500 hover:text-amber-400">Cancel</button>
+                   </div>
+                   {reviewBusy && !reviewQuestion && (
+                     <BuildingIndicator label="Loading..." />
+                   )}
+                   {reviewQuestion && !reviewResult && (
+                     <div className="space-y-3">
+                       <p className="text-sm text-slate-100 leading-relaxed">{reviewQuestion.question.question}</p>
+                       <div className="space-y-2">
+                         {reviewQuestion.question.options.map((option) => (
+                           <label
+                             key={option}
+                             className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 text-sm transition ${
+                               reviewAnswer === option
+                                 ? "border-amber-500 bg-amber-500/20 text-amber-100"
+                                 : "border-slate-700/50 hover:bg-slate-800"
+                             }`}
+                           >
+                             <input
+                               type="radio"
+                               checked={reviewAnswer === option}
+                               onChange={() => setReviewAnswer(option)}
+                               className="hidden"
+                             />
+                             <div className={`w-4 h-4 rounded-full border flex-shrink-0 flex items-center justify-center ${reviewAnswer === option ? 'border-amber-400' : 'border-slate-500'}`}>
+                               {reviewAnswer === option && <div className="w-2 h-2 rounded-full bg-amber-400" />}
+                             </div>
+                             <span className="flex-1">{option}</span>
+                           </label>
+                         ))}
+                       </div>
+                       <button
+                         onClick={handleSubmitReview}
+                         disabled={!reviewAnswer || reviewBusy}
+                         className="w-full rounded-xl bg-amber-600 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-amber-500 disabled:opacity-50 mt-2"
+                       >
+                         {reviewBusy ? "Checking..." : "Submit Answer"}
+                       </button>
+                     </div>
+                   )}
+                   {reviewResult && (
+                     <div className="space-y-3 animate-fade-in-up text-sm">
+                       <div className={`flex items-center gap-2 p-3 rounded-xl border ${reviewResult.correct ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" : "bg-slate-400/10 border-slate-400/30 text-slate-300"}`}>
+                         {reviewResult.correct ? <CheckCircle2 className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
+                         <span className="font-bold">{reviewResult.correct ? "Correct! Well done." : "Good effort! Let's review the answer."}</span>
+                       </div>
+                       <div className="text-slate-400 bg-slate-900/50 p-3 rounded-xl border border-slate-800">
+                         {!reviewResult.correct && (
+                           <>
+                             <p className="font-semibold text-slate-100 mb-1">Correct answer:</p>
+                             <p className="mb-3 text-emerald-300">{reviewResult.result.correct_answer}</p>
+                           </>
+                         )}
+                         <p className="text-slate-400">{reviewResult.result.explanation}</p>
+                       </div>
+                       
+                       {reviewResult.next_review_at && (
+                         <div className="flex items-center justify-center gap-2 text-xs text-amber-200/60 bg-amber-500/10 p-2 rounded-lg">
+                           <Clock className="w-3 h-3" />
+                           Next review scheduled for: {new Date(reviewResult.next_review_at).toLocaleDateString()}
+                         </div>
+                       )}
+
+                       <button
+                         onClick={() => setActiveReview(null)}
+                         className="w-full rounded-xl bg-amber-600 px-4 py-2.5 font-bold hover:bg-amber-500 text-slate-100 transition mt-2"
+                       >
+                         Continue
+                       </button>
+                     </div>
+                   )}
+                 </div>
               ) : (
-                <RoadmapList nodes={state.roadmap.nodes} sessionId={sessionId} onChanged={setState} />
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between mb-4">
+                    <span className="text-sm font-semibold text-slate-100">{dueReviews.length} reviews due</span>
+                  </div>
+                  <div className="space-y-2">
+                    {dueReviews.slice(0, 3).map((review) => (
+                      <div key={review.node_id} className="flex items-center justify-between p-3 rounded-2xl bg-amber-950/20 border border-amber-500/10 group hover:border-amber-500/30 transition">
+                        <span className="text-sm font-medium text-amber-100/90 truncate mr-2">{review.topic}</span>
+                        <button
+                          onClick={() => handleStartReview(review)}
+                          className="shrink-0 text-xs font-bold bg-amber-500 text-slate-100 px-4 py-1.5 rounded-lg hover:bg-amber-400 transition shadow-[0_0_10px_rgba(245,158,11,0.2)]"
+                        >
+                          Review now
+                        </button>
+                      </div>
+                    ))}
+                    {dueReviews.length > 3 && (
+                      <p className="text-xs text-center text-amber-500/70 mt-3 font-medium">+{dueReviews.length - 3} more pending</p>
+                    )}
+                  </div>
+                </div>
               )}
-            </Card>
-          </motion.div>
-        )}
-      </motion.div>
+            </div>
+
+            </div>
+
+          {/* Section 7 & 8: Skills + Achievements (full-width bottom row) */}
+          <div className="md:col-span-12 grid gap-6 lg:grid-cols-2 animate-fade-in-up" style={{ animationDelay: "0.5s" }}>
+            <div className="glass-panel-light p-6 rounded-3xl border border-slate-800/50">
+              <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-5 flex items-center gap-2">
+                <Shield className="w-4 h-4" /> Skill Profile
+              </h3>
+              
+              <div className="space-y-4">
+                {[
+                  { label: "Learned", count: skillsCount.learned, color: "bg-emerald-500" },
+                  { label: "Known (Prior)", count: skillsCount.known, color: "bg-slate-400" },
+                  { label: "Claimed (TBD)", count: skillsCount.claimed_unconfirmed, color: "bg-amber-500" },
+                  { label: "Skill Gaps", count: skillsCount.gap, color: "bg-red-500" },
+                ].map(stat => {
+                  const width = Math.max(5, (stat.count / totalSkills) * 100);
+                  return (
+                    <div key={stat.label} className="space-y-1.5">
+                      <div className="flex justify-between text-xs font-semibold">
+                        <span className="text-slate-400">{stat.label}</span>
+                        <span className="text-slate-400">{stat.count}</span>
+                      </div>
+                      <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden">
+                        <div className={`h-full ${stat.color} rounded-full`} style={{ width: `${width}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="glass-panel-light p-6 rounded-3xl border border-slate-800/50">
+              <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+                <Award className="w-4 h-4" /> Achievements
+              </h3>
+              <div className="flex flex-wrap gap-2">
+                {dashboard.badges.map((badge) => (
+                  <div
+                    key={badge.id}
+                    title={badge.label}
+                    className={`flex items-center gap-2 rounded-2xl px-3 py-2 text-sm font-semibold transition-all ${
+                      badge.achieved
+                        ? "bg-gradient-to-r from-slate-400/20 to-slate-400/20 border border-slate-400/30 text-slate-100 shadow-[0_0_15px_rgba(148,163,184,0.15)] hover:scale-105"
+                        : "bg-slate-900/50 border border-slate-800 text-slate-600 grayscale opacity-60"
+                    }`}
+                  >
+                    <span className="text-lg">{badge.icon}</span>
+                    <span className="text-xs">{badge.label}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

@@ -8,3 +8,10 @@ __pycache__/
 chroma_db/
 .DS_Store
 .claude/*.lock
+
+# Frontend (combined repo) build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/dist-ssr/
+frontend/.vercel/
+frontend/devserver.log

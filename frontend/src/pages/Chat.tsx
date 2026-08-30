@@ -1,41 +1,37 @@
-import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
-import { sendChatMessage, getState, submitChecklist, submitOnboardingQuiz } from "../api";
-import { Button, Card, Input } from "../components/nb";
+﻿import { useEffect, useRef, useState } from "react";
+// Removed duplicate link
+import { sendChatMessage, submitChecklist, submitOnboardingQuiz, ApiError } from "../api";
+import { roadmapApi } from "../api/roadmap";
 import ChatBubble from "../components/ChatBubble";
-import NavBar from "../components/NavBar";
 import QuizForm from "../components/QuizForm";
 import QuizResults from "../components/QuizResults";
+import OnboardingProgress from "../components/OnboardingProgress";
 import PageSkeleton from "../components/Skeleton";
-import { routeForStage } from "../routing";
-import { getSessionId } from "../session";
-import type { AppState, QuestionResult } from "../types";
+import { useAppState } from "../context/AppStateContext";
+import type { QuestionResult } from "../types";
 import { Link } from "react-router-dom";
+import { MessageCircle, Check, Sparkles, Import, Send, ArrowRight } from "lucide-react";
 
 export default function Chat() {
-  const navigate = useNavigate();
-  const sessionId = getSessionId();
+  const { state, updateState, auth, refreshState } = useAppState();
+  const sessionId = auth?.session_id;
 
-  const [state, setState] = useState<AppState | null>(null);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [generatingRoadmap, setGeneratingRoadmap] = useState(false);
 
+  // Checklist phase (state.pending_checklist_concepts)
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [submittingChecklist, setSubmittingChecklist] = useState(false);
 
+  // Quiz phase (state.pending_quiz) + its post-grade review, shown before
+  // moving on so a wrong answer isn't just a silent number - see
+  // backend/agents/assessment.py's module docstring for why this replaced
+  // free-text chat parsing entirely.
   const [submittingQuiz, setSubmittingQuiz] = useState(false);
   const [quizResults, setQuizResults] = useState<QuestionResult[] | null>(null);
-
-  useEffect(() => {
-    if (!sessionId) {
-      navigate("/login", { replace: true });
-      return;
-    }
-    getState(sessionId).then(({ state }) => setState(state)).catch(() => navigate("/login", { replace: true }));
-  }, [sessionId, navigate]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -47,26 +43,28 @@ export default function Chat() {
     setInput("");
     setSending(true);
     setError(null);
-    setState((prev) =>
-      prev
-        ? {
-            ...prev,
-            conversation_history: [
-              ...prev.conversation_history,
-              { role: "user", content: message, timestamp: new Date().toISOString(), agent: null },
-            ],
-          }
-        : prev,
-    );
+    if (state) {
+      updateState({
+        ...state,
+        conversation_history: [
+          ...state.conversation_history,
+          { role: "user", content: message, timestamp: new Date().toISOString(), agent: null },
+        ],
+      });
+    }
 
     try {
       const { state: newState } = await sendChatMessage(sessionId, message);
-      setState(newState);
-      if (newState.stage === "roadmap_review") {
-        navigate(routeForStage(newState.stage));
+      updateState(newState);
+      // StageRouter will handle navigation automatically since we updated the global state!
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 502) {
+        setError("The AI service is temporarily unavailable. Please try again.");
+      } else if (err instanceof ApiError && err.status === 400) {
+        setError(err.detail);
+      } else {
+        setError("Message didn't go through - try again.");
       }
-    } catch {
-      setError("Message didn't go through - try again.");
     } finally {
       setSending(false);
     }
@@ -78,10 +76,16 @@ export default function Chat() {
     setError(null);
     try {
       const { state: newState } = await submitChecklist(sessionId, Array.from(checked));
-      setState(newState);
+      updateState(newState);
       setChecked(new Set());
-    } catch {
-      setError("Couldn't submit that - try again.");
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 502) {
+        setError("The AI service is temporarily unavailable. Please try again.");
+      } else if (err instanceof ApiError && err.status === 400) {
+        setError(err.detail);
+      } else {
+        setError("Couldn't submit that - try again.");
+      }
     } finally {
       setSubmittingChecklist(false);
     }
@@ -93,10 +97,16 @@ export default function Chat() {
     setError(null);
     try {
       const { state: newState, results } = await submitOnboardingQuiz(sessionId, answers);
-      setState(newState);
+      updateState(newState);
       setQuizResults(results);
-    } catch {
-      setError("Couldn't submit your answers - try again.");
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 502) {
+        setError("The AI service is temporarily unavailable. Please try again.");
+      } else if (err instanceof ApiError && err.status === 400) {
+        setError(err.detail);
+      } else {
+        setError("Couldn't submit your answers - try again.");
+      }
     } finally {
       setSubmittingQuiz(false);
     }
@@ -104,7 +114,7 @@ export default function Chat() {
 
   function handleContinueAfterQuiz() {
     setQuizResults(null);
-    if (state) navigate(routeForStage(state.stage));
+    // State is already updated, StageRouter will take over if stage changed.
   }
 
   function toggleConcept(concept: string) {
@@ -116,10 +126,29 @@ export default function Chat() {
     });
   }
 
+  async function handleGenerateRoadmap() {
+    if (!sessionId || generatingRoadmap) return;
+    setGeneratingRoadmap(true);
+    setError(null);
+    try {
+      await roadmapApi.generatePathA(sessionId);
+      await refreshState();
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 502) {
+        setError("The AI service is temporarily unavailable. Please try again.");
+      } else if (err instanceof ApiError && err.status === 400) {
+        setError(err.detail);
+      } else {
+        setError("Failed to generate roadmap. Please try again.");
+      }
+    } finally {
+      setGeneratingRoadmap(false);
+    }
+  }
+
   if (!sessionId || !state) {
     return (
-      <div className="min-h-screen bg-bg text-fg">
-        <NavBar />
+      <div className="min-h-screen bg-slate-950 text-slate-100">
         <PageSkeleton />
       </div>
     );
@@ -130,183 +159,193 @@ export default function Chat() {
   const showChecklist = state.pending_checklist_concepts.length > 0;
   const showQuiz = state.pending_quiz.length > 0 && !quizResults;
   const showQuizReview = quizResults !== null;
-  const showComposer = !showChecklist && !showQuiz && !showQuizReview;
+  const isGeneratingPhase = state.stage === "path_selection" || state.stage === "roadmap_generation";
+  const showComposer = !showChecklist && !showQuiz && !showQuizReview && !isGeneratingPhase;
+
+  // Determine current step for progress indicator
+  let currentStep = 0;
+  if (state.learner_profile.goal) currentStep = 1;
+  if (state.skill_gap_map.assessments.length > 0 || showChecklist || showQuiz) currentStep = 2;
+  if (showQuiz || showQuizReview || state.stage === "assessment") currentStep = 3;
+  if (isGeneratingPhase || hasRoadmap) currentStep = 4;
 
   return (
-    <div className="flex min-h-screen flex-col bg-bg text-fg">
-      <NavBar hasRoadmap={hasRoadmap} />
-      <motion.header
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="border-b border-border bg-surface px-6 py-4 animate-fade-in-up"
-      >
-        <h1 className="text-base font-semibold tracking-tight font-display">Let's figure out your path</h1>
-        {history.length === 0 ? (
-          <div className="mt-2 flex items-center justify-between">
-            <span className="text-sm text-fg-secondary">Already talked to another AI about your goals?</span>
-            <Link to="/import">
-              <Button variant="secondary" size="sm">Import AI Context</Button>
-            </Link>
-          </div>
-        ) : (
-          <p className="mt-1 text-xs text-fg-muted">
-            Already talked to another AI?{" "}
-            <Link to="/import" className="text-fg font-medium hover:underline">
-              Import AI Context
-            </Link>
-          </p>
-        )}
-      </motion.header>
+    <div className="flex h-[100dvh] flex-col bg-slate-950 text-slate-100 overflow-hidden relative">
+      {/* Background glow effects */}
 
-      <div className="flex-1 space-y-3 overflow-y-auto px-6 py-6">
-        {history.length === 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="animate-fade-in-up"
-          >
+      
+      <header className="relative z-10 glass-panel-light border-b border-slate-800 px-6 py-5">
+        <div className="mx-auto max-w-4xl flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-slate-400/20 rounded-xl">
+              <MessageCircle className="w-5 h-5 text-slate-300" />
+            </div>
+            <h1 className="text-xl font-bold font-display text-slate-100">Let&apos;s figure out your path</h1>
+          </div>
+          {history.length === 0 ? (
+            <div className="flex items-center gap-3 rounded-xl border border-slate-400/30 bg-slate-400/10 px-4 py-2 text-sm text-slate-200">
+              <Sparkles className="w-4 h-4 text-slate-300" />
+              <span>Already talked to another AI about your goals?</span>
+              <Link to="/import" className="shrink-0 flex items-center gap-1.5 font-semibold text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-200 px-3 py-1 rounded-lg transition-all">
+                <Import className="w-3 h-3" /> Import Context
+              </Link>
+            </div>
+          ) : (
+            <p className="flex items-center gap-2 text-xs font-medium text-slate-400 bg-slate-900/50 px-3 py-1.5 rounded-lg border border-slate-800">
+              Have existing context?{" "}
+              <Link to="/import" className="flex items-center gap-1 text-slate-300 hover:text-slate-300 hover:underline">
+                Import <ArrowRight className="w-3 h-3" />
+              </Link>
+            </p>
+          )}
+        </div>
+      </header>
+
+      {!hasRoadmap && <OnboardingProgress currentStep={currentStep} />}
+
+      <div className="relative z-10 flex-1 overflow-y-auto px-6 py-8">
+        <div className="mx-auto max-w-4xl space-y-6">
+          {history.length === 0 && (
             <ChatBubble
               role="assistant"
-              content="Hi! What's your learning goal - and roughly how much time do you have for it?"
+              content="Hi! I&apos;m your AI learning architect. What&apos;s your learning goal - and roughly how much time do you have for it?"
             />
-          </motion.div>
-        )}
-        {history.map((turn, i) => (
-          <motion.div
-            key={i}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3 }}
-          >
-            <ChatBubble role={turn.role} content={turn.content} agent={turn.agent} />
-          </motion.div>
-        ))}
-        {sending && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-          >
-            <ChatBubble role="assistant" content="..." />
-          </motion.div>
-        )}
+          )}
+          {history.map((turn, i) => (
+            <ChatBubble key={i} role={turn.role} content={turn.content} agent={turn.agent} />
+          ))}
+          {sending && (
+            <div className="animate-fade-in-up">
+              <ChatBubble role="assistant" content="" isTyping />
+            </div>
+          )}
 
-        <AnimatePresence>
           {showChecklist && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="animate-fade-in-up"
-              style={{ animationDelay: '0.3s' }}
-            >
-              <Card className="mx-auto max-w-xl">
-                <p className="text-xs font-medium text-fg-secondary mb-3">
-                  TAP ANYTHING YOU'RE ALREADY CONFIDENT WITH, THEN CONFIRM.
+            <div className="mx-auto max-w-2xl glass-panel p-6 rounded-3xl animate-fade-in-up">
+              <div className="flex items-center gap-2 mb-4">
+                <Check className="w-5 h-5 text-slate-300" />
+                <p className="text-sm font-semibold text-slate-100">
+                  Which of these skills do you already know?
                 </p>
-                <div className="flex flex-wrap gap-2">
-                  {state.pending_checklist_concepts.map((concept) => (
-                    <motion.button
+              </div>
+              <div className="flex flex-wrap gap-2.5 mt-4">
+                {state.pending_checklist_concepts.map((concept) => {
+                  const isChecked = checked.has(concept);
+                  return (
+                    <button
                       key={concept}
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
                       onClick={() => toggleConcept(concept)}
-                      className={`border rounded-lg px-3 py-1.5 text-sm font-medium transition-all duration-300 hover:scale-[1.02] ${
-                        checked.has(concept)
-                          ? "border-fg bg-fg text-white dark:border-accent dark:bg-accent dark:text-[#0A0A0A]"
-                          : "border-border bg-surface text-fg hover:border-border-strong"
+                      className={`rounded-xl border px-4 py-2 text-sm font-medium transition-all duration-300 flex items-center gap-2 ${
+                        isChecked
+                          ? "border-slate-400 bg-slate-400/20 text-slate-100 shadow-[0_0_15px_rgba(148,163,184,0.2)]"
+                          : "border-slate-800 bg-slate-800 text-slate-400 hover:bg-white/10"
                       }`}
                     >
-                      {checked.has(concept) ? "✓ " : ""}
+                      {isChecked && <Check className="w-4 h-4 text-slate-300" />}
                       {concept}
-                    </motion.button>
-                  ))}
-                </div>
-                <Button
-                  className="mt-4"
-                  onClick={handleChecklistConfirm}
-                  disabled={submittingChecklist}
-                >
-                  {submittingChecklist
-                    ? "Thinking..."
-                    : checked.size === 0
-                      ? "None of these"
-                      : `Confirm ${checked.size} selected`}
-                </Button>
-              </Card>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <AnimatePresence>
-          {showQuiz && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="animate-fade-in-up"
-              style={{ animationDelay: '0.3s' }}
-            >
-              <Card className="mx-auto max-w-xl">
-                <QuizForm
-                  questions={state.pending_quiz}
-                  onSubmit={handleQuizSubmit}
-                  submitting={submittingQuiz}
-                />
-              </Card>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <AnimatePresence>
-          {showQuizReview && quizResults && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="mx-auto max-w-xl space-y-3 animate-fade-in-up"
-              style={{ animationDelay: '0.3s' }}
-            >
-              <QuizResults results={quizResults} />
-              <Button
-                className="w-full hover:scale-[1.02] transition-transform duration-300"
-                onClick={handleContinueAfterQuiz}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                onClick={handleChecklistConfirm}
+                disabled={submittingChecklist}
+                className="mt-6 w-full sm:w-auto rounded-xl bg-slate-100 px-8 py-3 text-sm font-bold text-slate-900 transition-all hover:bg-slate-200 hover:scale-[1.02] disabled:opacity-50 shadow-lg shadow-slate-950/50"
               >
-                See my roadmap →
-              </Button>
-            </motion.div>
+                {submittingChecklist
+                  ? "Thinking..."
+                  : checked.size === 0
+                    ? "None of these"
+                    : `Confirm ${checked.size} selected`}
+              </button>
+            </div>
           )}
-        </AnimatePresence>
 
-        <div ref={bottomRef} />
+          {showQuiz && (
+            <div className="mx-auto max-w-2xl glass-panel p-6 rounded-3xl animate-fade-in-up">
+              <QuizForm
+                questions={state.pending_quiz}
+                onSubmit={handleQuizSubmit}
+                submitting={submittingQuiz}
+              />
+            </div>
+          )}
+
+          {showQuizReview && quizResults && (
+            <div className="mx-auto max-w-2xl space-y-6 animate-fade-in-up">
+              <div className="glass-panel p-6 rounded-3xl">
+                <QuizResults results={quizResults} />
+              </div>
+              <button
+                onClick={handleContinueAfterQuiz}
+                className="w-full rounded-xl bg-slate-100 px-8 py-3.5 text-base font-bold text-slate-900 transition-all hover:bg-slate-200 hover:scale-[1.02] shadow-lg shadow-slate-950/50 flex items-center justify-center gap-2"
+              >
+                Continue <ArrowRight className="w-5 h-5" />
+              </button>
+            </div>
+          )}
+
+          {isGeneratingPhase && (
+            <div className="mx-auto max-w-2xl glass-panel p-10 rounded-3xl animate-fade-in-up text-center mt-8">
+              <Sparkles className="w-12 h-12 text-slate-300 mx-auto mb-6 animate-pulse" />
+              <h2 className="text-2xl font-bold font-display text-slate-100 mb-4">
+                You're all set!
+              </h2>
+              <p className="text-slate-400 mb-8 leading-relaxed">
+                We have enough context to generate your personalized learning roadmap. 
+                This will take 10-30 seconds as the AI curates your curriculum.
+              </p>
+              
+              <button
+                onClick={handleGenerateRoadmap}
+                disabled={generatingRoadmap}
+                className="w-full rounded-xl bg-slate-100 px-8 py-4 text-lg font-bold text-slate-900 transition-all hover:bg-slate-200 hover:scale-[1.02] disabled:opacity-50 shadow-lg shadow-slate-950/50 flex items-center justify-center gap-3"
+              >
+                {generatingRoadmap ? "Building your personalized learning path..." : "Generate Roadmap"}
+                {!generatingRoadmap && <ArrowRight className="w-6 h-6" />}
+              </button>
+            </div>
+          )}
+
+          <div ref={bottomRef} className="h-4" />
+        </div>
       </div>
 
-      {error && <p className="px-6 pb-2 text-sm text-danger">{error}</p>}
+      {error && (
+        <div className="relative z-10 mx-auto max-w-4xl px-6 pb-2 w-full">
+          <p className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-2 rounded-lg text-sm">{error}</p>
+        </div>
+      )}
 
       {showComposer && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="border-t border-border bg-surface p-4 animate-fade-in-up"
-          style={{ animationDelay: '0.4s' }}
-        >
-          <div className="mx-auto flex max-w-3xl gap-2">
-            <Input
+        <div className="relative z-10 glass-panel-light border-t border-slate-800 p-4 md:p-6 backdrop-blur-xl bg-slate-950/80">
+          <div className="mx-auto flex max-w-4xl gap-3">
+            <textarea
               value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSend()}
+              onChange={(e) => {
+                setInput(e.target.value);
+                e.target.style.height = "auto";
+                e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              rows={1}
               placeholder="Type your message..."
+              className="flex-1 resize-none rounded-2xl bg-slate-900 border border-slate-700 px-5 py-3.5 text-base text-slate-100 outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-400 transition-all placeholder:text-slate-500 shadow-inner"
             />
-            <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-              <Button
-                onClick={handleSend}
-                disabled={sending || !input.trim()}
-              >
-                Send
-              </Button>
-            </motion.div>
+            <button
+              onClick={handleSend}
+              disabled={sending || !input.trim()}
+              className="rounded-2xl bg-slate-100 px-6 py-3.5 text-sm font-bold text-slate-900 transition-all hover:bg-slate-200 disabled:opacity-50 disabled:hover:bg-slate-100 shadow-lg shadow-slate-950/50 flex items-center justify-center"
+            >
+              <Send className="w-5 h-5" />
+            </button>
           </div>
-        </motion.div>
+        </div>
       )}
     </div>
   );
