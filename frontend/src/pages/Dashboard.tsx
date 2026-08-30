@@ -11,7 +11,7 @@ import {
   submitReview,
 } from "../api";
 import BuildingIndicator from "../components/BuildingIndicator";
-import RoadmapPath from "../components/RoadmapPath";
+import RoadmapTimeline from "../components/RoadmapTimeline";
 import PageSkeleton from "../components/Skeleton";
 import { useAppState } from "../context/AppStateContext";
 import { useToast } from "../context/ToastContext";
@@ -229,8 +229,8 @@ export default function Dashboard() {
                 <Route className="w-6 h-6 text-slate-300" />
                 <h3 className="text-xl font-bold font-display">Roadmap</h3>
               </div>
-              <div className="glass-panel-light rounded-3xl border border-slate-800/50 pt-10 pb-4 px-2 sm:px-4">
-                <RoadmapPath nodes={nodes} />
+              <div className="glass-panel-light rounded-3xl border border-slate-800/50 pt-6 pb-4 px-2 sm:px-4">
+                <RoadmapTimeline nodes={nodes} />
               </div>
             </div>
 
