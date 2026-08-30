@@ -65,6 +65,13 @@ needs the backend URL.
    request after idle will be slow (a signup or `/health` check timing out
    the first try is normal, just retry). Fine for a demo/hackathon; a paid
    tier removes this if you need it always warm.
+7. **Why TF-IDF (not sentence-transformers)**: the RAG retrieval is built on
+   sklearn TF-IDF + FAISS instead of torch + sentence-transformers
+   (`all-MiniLM-L6-v2`). That stack is intentional for the free tier: torch
+   and the model artifact exceed Render's 512MB free-tier memory/build
+   budget, whereas TF-IDF has no model download and no heavy ML dependency.
+   The committed index (`backend/rag/artifacts/`) requires no build step at
+   deploy. See `docs/final_decisions.md` under "RAG embeddings".
 
 ## 3. Frontend (Vercel)
 

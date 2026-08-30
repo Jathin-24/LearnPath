@@ -38,7 +38,8 @@ silently deviating.
 2. Local Postgres connection (already installed locally - use it directly for
    dev; do not set up Supabase yet, that's a deploy-time swap only)
 3. RAG index over `backend/data/enriched_courses.json` (FAISS +
-   sentence-transformers)
+   TF-IDF; originally sentence-transformers, swapped to TF-IDF to fit
+   Render's free-tier memory — see docs/final_decisions.md)
 4. LangGraph orchestrator using `backend/orchestrator/state_schema.py` as the
    ONLY state shape - do not invent parallel state structures
 5. Agents: Profiler -> Assessment -> Path-A -> Roadmap Generator -> Explainer,

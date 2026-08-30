@@ -3,7 +3,12 @@
 ## 1. Core Architecture
 - **Backend**: Python, FastAPI, LangGraph (multi-agent orchestration)
 - **Frontend**: React + React Flow (roadmap visualization) + Recharts (progress/skill charts) — **not started yet, backend first**
-- **RAG**: Chroma or FAISS, embedding `enriched_courses.json` via local `sentence-transformers` (`all-MiniLM-L6-v2`) — free, no API key
+- **RAG**: FAISS, embedding `enriched_courses.json` via sklearn TF-IDF
+  (4096 features) + FAISS cosine index — free, no API key, no model download.
+  Originally sentence-transformers (`all-MiniLM-L6-v2`), swapped to TF-IDF
+  because torch + sentence-transformers exceeded Render's free-tier memory
+  budget; TF-IDF serves the 80-course index fine. See
+  `docs/final_decisions.md` for the full rationale.
 - **Database**: local Postgres for dev (JSON column per session, keyed by `session_id`); Supabase is a deploy-time swap only, not used yet
 - **LLM**: `backend/common/llm_client.py` — multi-key, multi-provider client with automatic failover on rate limits (tested). Configure via `LLM_PROVIDERS` / `LLM_API_KEYS` / `LLM_MODELS` env vars, priority-ordered, never hardcoded
 - **Hosting**: Render/Railway (backend), Vercel (frontend) — all free tier, deploy-time only
@@ -69,7 +74,9 @@ Roadmap Complete.
 1. Project skeleton (FastAPI, folder structure, `.env` config)
 2. Shared state schema — **done**, `state_schema.py` (now includes MCQ assessment format)
 3. Local Postgres connection — JSON column per session, keyed by `session_id`
-4. RAG index over `enriched_courses.json` using local sentence-transformers — test retrieval
+4. RAG index over `enriched_courses.json` using local TF-IDF + FAISS (was
+   sentence-transformers; swapped to meet Render free-tier memory) — test
+   retrieval
    quality standalone first
 5. LangGraph orchestrator with stub agents — prove routing works before adding real logic
 6. Implement agents one at a time, **Path A only for now**: Profiler → Assessment → Path-A →
