@@ -424,84 +424,59 @@ export default function TopicDetail() {
         </div>
         {/* Ambient glow */}
 
-        {/* 3-Column Desktop Layout (Left: Nav, Center: Learning, Right: Notes/Res) */}
-        <div className="relative z-10 flex flex-col gap-6 lg:grid lg:grid-cols-12 lg:items-start lg:gap-8">
-          
-          {/* LEFT COLUMN: Nav / Topic Info */}
-          <div className="lg:col-span-3 flex flex-col gap-6 order-3 lg:order-1">
-            <Link to="/app" className="flex items-center gap-1 text-sm font-medium text-slate-400 hover:text-white transition">
-              <ChevronLeft className="w-4 h-4" /> Back to Dashboard
-            </Link>
-            <div className="glass-panel p-5 rounded-3xl animate-fade-in-up border border-slate-400/20">
-              <div className="mb-4">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-400/10 border border-slate-400/30 px-2.5 py-1 text-xs font-semibold text-slate-300 uppercase tracking-wider mb-3">
-                  <Route className="w-3.5 h-3.5" />
-                  {node.path_type === "path_a_dataset" ? "Dataset Path" : node.path_type === "path_b_open_web" ? "Open Web Path" : "Mixed Path"}
-                </span>
-                <h1 className="text-2xl font-bold font-display leading-tight">{node.topic}</h1>
-              </div>
-
-              <div className="space-y-5">
-                <div className="flex items-center gap-2 text-sm text-slate-400 bg-slate-800 p-3 rounded-xl border border-slate-800">
-                  <Clock className="w-4 h-4 text-slate-300 shrink-0" /> 
-                  <span className="font-medium">Est. {node.estimated_days} days</span>
-                  <div className="ml-auto hidden lg:flex items-center gap-1.5 rounded-md bg-slate-900 px-2.5 py-1 text-xs font-mono text-slate-300">
-                    {formatTimer(displaySeconds)}
-                  </div>
-                </div>
-
-                {node.key_concepts.length > 0 && (
-                  <div>
-                    <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                      <Tag className="w-3.5 h-3.5" /> Key Concepts
-                    </h4>
-                    <div className="flex flex-wrap gap-1.5">
-                      {node.key_concepts.map(kc => (
-                        <span key={kc} className="px-2 py-1 rounded-md bg-slate-800 text-xs text-slate-400 border border-slate-700">{kc}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                
-                {node.internal_prerequisites.length > 0 && (
-                  <div>
-                    <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                      <LinkIcon className="w-3.5 h-3.5" /> Prerequisites
-                    </h4>
-                    <ul className="list-disc pl-4 text-xs text-slate-400 space-y-1">
-                      {node.internal_prerequisites.map(pr => <li key={pr}>{pr}</li>)}
-                    </ul>
-                  </div>
-                )}
-              </div>
+        {/* Full-width Topic header */}
+        <Link to="/app" className="mb-4 inline-flex items-center gap-1 text-sm font-medium text-slate-400 hover:text-white transition">
+          <ChevronLeft className="w-4 h-4" /> Back to Dashboard
+        </Link>
+        <div className="glass-panel p-6 rounded-3xl animate-fade-in-up border border-slate-400/20">
+          <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
+            <div className="min-w-0">
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-slate-400/10 border border-slate-400/30 px-2.5 py-1 text-xs font-semibold text-slate-300 uppercase tracking-wider mb-3">
+                <Route className="w-3.5 h-3.5" />
+                {node.path_type === "path_a_dataset" ? "Dataset Path" : node.path_type === "path_b_open_web" ? "Open Web Path" : "Mixed Path"}
+              </span>
+              <h1 className="text-2xl md:text-3xl font-bold font-display leading-tight">{node.topic}</h1>
             </div>
-
-            {/* Subtopic Progression */}
-            <div className="glass-panel p-5 rounded-3xl animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
-              <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
-                <h2 className="text-sm font-semibold font-display text-slate-100 uppercase tracking-wider">Progression</h2>
-                <span className="text-xs font-bold text-slate-300">{resolvedSubtopicCount}/{node.subtopics.length}</span>
+            <div className="flex shrink-0 items-center gap-2 text-sm text-slate-400 bg-slate-800 p-3 rounded-xl border border-slate-800">
+              <Clock className="w-4 h-4 text-slate-300 shrink-0" />
+              <span className="font-medium whitespace-nowrap">Est. {node.estimated_days} days</span>
+              <div className="flex items-center gap-1.5 rounded-md bg-slate-900 px-2.5 py-1 text-xs font-mono text-slate-300">
+                <Clock className="w-3.5 h-3.5" /> {formatTimer(displaySeconds)}
               </div>
-              <ul className="space-y-2 relative before:absolute before:inset-y-2 before:left-[15px] before:w-px before:bg-slate-800">
-                {node.subtopics.map((sub) => {
-                  const isActive = sub.status === "available";
-                  return (
-                    <li key={sub.subtopic_id} className={`relative z-10 flex items-center gap-3 p-2 rounded-xl transition-all ${isActive ? "bg-slate-400/10 border border-slate-400/30" : sub.status === "locked" ? "opacity-60" : ""}`}>
-                      <div className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-full border bg-slate-950 ${subtopicStatusColor(sub.status)}`}>
-                        {subtopicStatusIcon(sub.status)}
-                      </div>
-                      <span className={`text-sm font-medium line-clamp-2 ${isActive ? "text-slate-200" : sub.status === "locked" ? "text-slate-500" : sub.status === "skipped" ? "text-slate-500 line-through" : "text-emerald-100"}`}>
-                        {sub.name}
-                      </span>
-                    </li>
-                  )
-                })}
-              </ul>
             </div>
           </div>
 
+          <div className="mt-5 grid gap-5 md:grid-cols-2">
+            {node.key_concepts.length > 0 && (
+              <div>
+                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <Tag className="w-3.5 h-3.5" /> Key Concepts
+                </h4>
+                <div className="flex flex-wrap gap-1.5">
+                  {node.key_concepts.map(kc => (
+                    <span key={kc} className="px-2 py-1 rounded-md bg-slate-800 text-xs text-slate-400 border border-slate-700">{kc}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {node.internal_prerequisites.length > 0 && (
+              <div>
+                <h4 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                  <LinkIcon className="w-3.5 h-3.5" /> Prerequisites
+                </h4>
+                <ul className="list-disc pl-4 text-xs text-slate-400 space-y-1">
+                  {node.internal_prerequisites.map(pr => <li key={pr}>{pr}</li>)}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 2-Column Layout (Center: Learning, Right: Progression/Res/Notes) */}
+        <div className="relative z-10 flex flex-col gap-6 lg:grid lg:grid-cols-12 lg:items-start lg:gap-8">
+
           {/* CENTER COLUMN: Learning / Quiz / Project */}
-          <div className="lg:col-span-6 flex flex-col gap-6 order-1 lg:order-2">
+          <div className="lg:col-span-8 flex flex-col gap-6 order-1 lg:order-2">
             
             {/* Active Learning Area */}
             {activeSubtopic && !allSubtopicsResolved && (
@@ -799,8 +774,31 @@ export default function TopicDetail() {
             )}
           </div>
 
-          {/* RIGHT COLUMN: Why this topic / Resources / Notes */}
-          <div className="lg:col-span-3 flex flex-col gap-4 order-2 lg:order-3">
+          {/* RIGHT COLUMN: Progression / Why / Resources / Notes */}
+          <div className="lg:col-span-4 flex flex-col gap-4 order-2 lg:order-3">
+
+            {/* Subtopic Progression */}
+            <div className="glass-panel p-5 rounded-3xl animate-fade-in-up border border-slate-400/20" style={{ animationDelay: '0.15s' }}>
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-800">
+                <h2 className="text-sm font-semibold font-display text-slate-100 uppercase tracking-wider">Progression</h2>
+                <span className="text-xs font-bold text-slate-300">{resolvedSubtopicCount}/{node.subtopics.length}</span>
+              </div>
+              <ul className="space-y-2 relative before:absolute before:inset-y-2 before:left-[15px] before:w-px before:bg-slate-800">
+                {node.subtopics.map((sub) => {
+                  const isActive = sub.status === "available";
+                  return (
+                    <li key={sub.subtopic_id} className={`relative z-10 flex items-center gap-3 p-2 rounded-xl transition-all ${isActive ? "bg-slate-400/10 border border-slate-400/30" : sub.status === "locked" ? "opacity-60" : ""}`}>
+                      <div className={`shrink-0 flex items-center justify-center w-8 h-8 rounded-full border bg-slate-950 ${subtopicStatusColor(sub.status)}`}>
+                        {subtopicStatusIcon(sub.status)}
+                      </div>
+                      <span className={`text-sm font-medium line-clamp-2 ${isActive ? "text-slate-200" : sub.status === "locked" ? "text-slate-500" : sub.status === "skipped" ? "text-slate-500 line-through" : "text-emerald-100"}`}>
+                        {sub.name}
+                      </span>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
 
             {/* Why am I learning this? */}
             <section className="glass-panel rounded-3xl p-5 animate-fade-in-up" style={{ animationDelay: '0.4s' }}>
