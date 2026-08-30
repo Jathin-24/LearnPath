@@ -24,6 +24,10 @@ class Settings:
     # so a deployment only needs an env var, never a source edit. See
     # docs/deployment_guide.md.
     allowed_origins: str = os.environ.get("ALLOWED_ORIGINS", "")
+    # Secret used to sign access tokens (backend/common/security.py). If
+    # unset, tokens are signed with a per-process random key (invalidated on
+    # restart) - set a stable value in production.
+    access_token_secret: str | None = os.environ.get("ACCESS_TOKEN_SECRET")
 
 
 @lru_cache

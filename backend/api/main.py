@@ -23,7 +23,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
@@ -47,6 +47,7 @@ from backend.common import db
 from backend.common.config import get_settings
 from backend.common.grading import grade_mcq_batch
 from backend.common.llm_client import LLMClient
+from backend.common.security import create_access_token, extract_caller_user_id
 from backend.common.slugify import slugify
 from backend.orchestrator.graph import build_graph
 from backend.orchestrator.state_schema import (
@@ -85,10 +86,45 @@ app.add_middleware(
 )
 
 
-def _load_or_404(session_id: str) -> AppState:
+def _load_or_404(
+    session_id: str, request: Request | None = None, token_override: str | None = None
+) -> AppState:
+    """Loads a session and enforces ownership.
+
+    Ownership rule (see docs/final_decisions.md -> Auth hardening):
+      - If the session belongs to a user (session.user_id is not None), the
+        caller MUST present a valid access token whose user_id matches that
+        owner, else 401/403. This is what stops "User B submitting User A's
+        session_id".
+      - Guest sessions (session.user_id is None, created via /session) stay
+        open - no token required, matching the existing "Continue as Guest"
+        flow.
+
+    token_override lets href-based flows (which can't set headers) pass the
+    token as a query param; it is treated identically to the Authorization
+    header.
+    """
     state = db.load_state(session_id)
     if state is None:
         raise HTTPException(status_code=404, detail=f"No session found for {session_id}")
+
+    if state.user_id is not None:
+        if token_override:
+            from backend.common.security import verify_access_token
+
+            caller_user_id = verify_access_token(token_override)
+        else:
+            caller_user_id = extract_caller_user_id(request) if request is not None else None
+        if caller_user_id is None:
+            raise HTTPException(
+                status_code=401,
+                detail="Authentication required - this session belongs to a user",
+            )
+        if caller_user_id != state.user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="You do not have access to this session",
+            )
     return state
 
 
@@ -166,7 +202,12 @@ def signup(payload: SignupRequest):
 
     state = AppState(session_id=str(uuid.uuid4()), user_id=user_id)
     db.create_session(state, user_id=user_id)
-    return {"user_id": user_id, "username": payload.username, "session_id": state.session_id}
+    return {
+        "user_id": user_id,
+        "username": payload.username,
+        "session_id": state.session_id,
+        "access_token": create_access_token(user_id),
+    }
 
 
 @app.post("/auth/login")
@@ -183,7 +224,12 @@ def login(payload: LoginRequest):
         db.create_session(state, user_id=user["user_id"])
         session_id = state.session_id
 
-    return {"user_id": user["user_id"], "username": user["username"], "session_id": session_id}
+    return {
+        "user_id": user["user_id"],
+        "username": user["username"],
+        "session_id": session_id,
+        "access_token": create_access_token(user["user_id"]),
+    }
 
 
 class ChatRequest(BaseModel):
@@ -192,8 +238,8 @@ class ChatRequest(BaseModel):
 
 
 @app.post("/chat")
-def chat(payload: ChatRequest):
-    state = _load_or_404(payload.session_id)
+def chat(payload: ChatRequest, request: Request):
+    state = _load_or_404(payload.session_id, request)
 
     # Stay single-topic-focused: once a roadmap exists and is active, don't
     # invoke the full Profiler/Assessment graph again (which would try to
@@ -247,14 +293,14 @@ class ChecklistSubmitRequest(BaseModel):
 
 
 @app.post("/assessment/checklist/submit")
-def submit_checklist(payload: ChecklistSubmitRequest):
+def submit_checklist(payload: ChecklistSubmitRequest, request: Request):
     """Structured alternative to typing an answer into /chat during the
     onboarding skill checklist - the frontend renders
     state.pending_checklist_concepts as checkboxes (see Chat.tsx) and posts
     the ones the learner ticked directly, so there's no free-text intent to
     misparse. See assessment.py's module docstring for why this replaced
     the old LLM-based extraction step."""
-    state = _load_or_404(payload.session_id)
+    state = _load_or_404(payload.session_id, request)
     if not state.pending_checklist_concepts:
         raise HTTPException(status_code=400, detail="No checklist pending for this session")
 
@@ -293,12 +339,12 @@ class OnboardingQuizSubmitRequest(BaseModel):
 
 
 @app.post("/assessment/quiz/submit")
-def submit_onboarding_quiz(payload: OnboardingQuizSubmitRequest):
+def submit_onboarding_quiz(payload: OnboardingQuizSubmitRequest, request: Request):
     """Structured alternative to typing answers into /chat for the
     onboarding skill quiz - grading is deterministic (grade_pending_quiz),
     then the graph is resumed from Path-A onward (same cascade /chat uses)
     since next_agent/awaiting_input are already set for that by grading."""
-    state = _load_or_404(payload.session_id)
+    state = _load_or_404(payload.session_id, request)
     if not state.pending_quiz:
         raise HTTPException(status_code=400, detail="No quiz pending for this session")
 
@@ -339,10 +385,10 @@ def _extract_knowledge_best_effort(state: AppState, text: str, source: str) -> N
 
 
 @app.post("/context/import")
-def import_context(payload: ImportContextRequest):
+def import_context(payload: ImportContextRequest, request: Request):
     if not payload.imported_text or not payload.imported_text.strip():
         raise HTTPException(status_code=400, detail="Imported text cannot be empty")
-    state = _load_or_404(payload.session_id)
+    state = _load_or_404(payload.session_id, request)
     state.learner_profile.imported_context_raw = payload.imported_text
     _extract_knowledge_best_effort(state, payload.imported_text, source="import")
     db.save_state(state)
@@ -350,8 +396,8 @@ def import_context(payload: ImportContextRequest):
 
 
 @app.get("/knowledge/{session_id}")
-def get_knowledge(session_id: str):
-    state = _load_or_404(session_id)
+def get_knowledge(session_id: str, request: Request):
+    state = _load_or_404(session_id, request)
     if not state.user_id:
         return {"entries": []}
     return {"entries": db.get_knowledge_for_user(state.user_id)}
@@ -362,8 +408,8 @@ class DeleteKnowledgeRequest(BaseModel):
 
 
 @app.delete("/knowledge/{entry_id}")
-def delete_knowledge(entry_id: str, payload: DeleteKnowledgeRequest):
-    state = _load_or_404(payload.session_id)
+def delete_knowledge(entry_id: str, payload: DeleteKnowledgeRequest, request: Request):
+    state = _load_or_404(payload.session_id, request)
     if not state.user_id:
         raise HTTPException(status_code=400, detail="No knowledge base for this session")
     db.delete_knowledge_entry(entry_id, state.user_id)
@@ -371,14 +417,14 @@ def delete_knowledge(entry_id: str, payload: DeleteKnowledgeRequest):
 
 
 @app.post("/goal/restart")
-def restart_goal(payload: SessionIdRequest):
+def restart_goal(payload: SessionIdRequest, request: Request):
     """Start a fresh goal/roadmap - everything goal-specific (skills
     assessed, roadmap, conversation) resets so the new Profiler
     conversation starts clean, but identity fields (name/email/age/gender/
     occupation) carry over since those don't change per-goal. This is what
     the Tutor's mid-roadmap redirect and the Complete page both point the
     learner to."""
-    state = _load_or_404(payload.session_id)
+    state = _load_or_404(payload.session_id, request)
     identity = state.learner_profile
     state.learner_profile = LearnerProfile(
         name=identity.name,
@@ -461,7 +507,7 @@ def _merge_resume_profile_fields(state: AppState, text: str) -> str | None:
 
 @app.post("/profile/resume")
 async def upload_resume(session_id: str = Form(...), file: UploadFile = File(...)):
-    state = _load_or_404(session_id)
+    state = _load_or_404(session_id, request)
     if not (file.filename or "").lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF resumes are supported right now")
 
@@ -493,8 +539,12 @@ async def upload_resume(session_id: str = Form(...), file: UploadFile = File(...
 
 
 @app.get("/profile/resume/file/{session_id}")
-def get_resume_file(session_id: str):
-    state = _load_or_404(session_id)
+def get_resume_file(session_id: str, request: Request, token: str = ""):
+    # href-based "View PDF" flows can't send an Authorization header, so they
+    # may pass the access token as a query param instead. Both resolve to the
+    # same ownership check below; a caller gets nothing unless their token's
+    # user_id matches the session owner (or the session is a guest).
+    state = _load_or_404(session_id, request, token_override=token or None)
     if not state.user_id:
         raise HTTPException(status_code=404, detail="No resume on file for this session")
     row = db.get_resume_file(state.user_id)
@@ -508,13 +558,13 @@ def get_resume_file(session_id: str):
 
 
 @app.get("/state/{session_id}")
-def get_state(session_id: str):
-    return {"state": _load_or_404(session_id)}
+def get_state(session_id: str, request: Request):
+    return {"state": _load_or_404(session_id, request)}
 
 
 @app.post("/roadmap/generate/path-a")
-def generate_path_a(payload: SessionIdRequest):
-    state = _load_or_404(payload.session_id)
+def generate_path_a(payload: SessionIdRequest, request: Request):
+    state = _load_or_404(payload.session_id, request)
     try:
         state = run_path_a(state)
         state = run_roadmap_generator(state)
@@ -529,8 +579,8 @@ def generate_path_a(payload: SessionIdRequest):
 
 
 @app.post("/roadmap/confirm")
-def confirm_roadmap(payload: SessionIdRequest):
-    state = _load_or_404(payload.session_id)
+def confirm_roadmap(payload: SessionIdRequest, request: Request):
+    state = _load_or_404(payload.session_id, request)
     if state.roadmap is None:
         raise HTTPException(status_code=400, detail="No roadmap to confirm for this session")
 
@@ -549,11 +599,11 @@ class ReorderRequest(BaseModel):
 
 
 @app.post("/roadmap/reorder")
-def reorder_roadmap_node(payload: ReorderRequest):
+def reorder_roadmap_node(payload: ReorderRequest, request: Request):
     """Only LOCKED (not-yet-started) topics can be reordered - completed/
     available/in-progress topics stay put, keeping the sequential-unlock
     model (backend/api/main.py's _unlock_next_in_sequence) intact."""
-    state = _load_or_404(payload.session_id)
+    state = _load_or_404(payload.session_id, request)
     if state.roadmap is None:
         raise HTTPException(status_code=400, detail="No roadmap for this session")
 
@@ -578,10 +628,10 @@ def reorder_roadmap_node(payload: ReorderRequest):
 
 
 @app.post("/roadmap/skip/{node_id}")
-def skip_roadmap_node(node_id: str, payload: SessionIdRequest):
+def skip_roadmap_node(node_id: str, payload: SessionIdRequest, request: Request):
     """Removes a LOCKED (not-yet-started) topic entirely and strips it from
     every other node's internal_prerequisites so nothing dangles."""
-    state = _load_or_404(payload.session_id)
+    state = _load_or_404(payload.session_id, request)
     if state.roadmap is None:
         raise HTTPException(status_code=400, detail="No roadmap for this session")
     node = state.roadmap.get_node(node_id)
@@ -606,13 +656,13 @@ class AddNodeRequest(BaseModel):
 
 
 @app.post("/roadmap/node/add")
-def add_roadmap_node(payload: AddNodeRequest):
+def add_roadmap_node(payload: AddNodeRequest, request: Request):
     """Learner-added custom topic. Defaults to PATH_B_OPEN_WEB - no dataset
     match needed, content fills in lazily via run_path_b the same as any
     other web node. Always appended at the end, LOCKED - it'll only unlock
     once every existing node ahead of it is complete, same sequential model
     as everything else (_unlock_next_in_sequence)."""
-    state = _load_or_404(payload.session_id)
+    state = _load_or_404(payload.session_id, request)
     if not payload.topic.strip():
         raise HTTPException(status_code=400, detail="Topic name is required")
     if state.roadmap is None:
@@ -645,10 +695,10 @@ class EditNodeRequest(BaseModel):
 
 
 @app.patch("/roadmap/node/{node_id}")
-def edit_roadmap_node(node_id: str, payload: EditNodeRequest):
+def edit_roadmap_node(node_id: str, payload: EditNodeRequest, request: Request):
     """Restricted to LOCKED nodes, consistent with reorder/skip - never edit
     a topic the learner has already started or completed."""
-    state = _load_or_404(payload.session_id)
+    state = _load_or_404(payload.session_id, request)
     if state.roadmap is None:
         raise HTTPException(status_code=400, detail="No roadmap for this session")
     node = state.roadmap.get_node(node_id)
@@ -671,10 +721,10 @@ class DeleteNodeRequest(BaseModel):
 
 
 @app.post("/roadmap/node/{node_id}/delete")
-def delete_roadmap_node(node_id: str, payload: DeleteNodeRequest):
+def delete_roadmap_node(node_id: str, payload: DeleteNodeRequest, request: Request):
     """Deletes a LOCKED (not-yet-started) topic entirely and strips it from
     every other node's internal_prerequisites so nothing dangles."""
-    state = _load_or_404(payload.session_id)
+    state = _load_or_404(payload.session_id, request)
     if state.roadmap is None:
         raise HTTPException(status_code=400, detail="No roadmap for this session")
     node = state.roadmap.get_node(node_id)
@@ -693,12 +743,12 @@ def delete_roadmap_node(node_id: str, payload: DeleteNodeRequest):
 
 
 @app.post("/topic/{node_id}/project/expand")
-def expand_project(node_id: str, payload: SessionIdRequest):
+def expand_project(node_id: str, payload: SessionIdRequest, request: Request):
     """One extra LLM call, only on explicit request - see
     roadmap_generator.py's expand_project_description. Cached onto
     node.project.detailed_description so asking twice doesn't re-spend a
     call."""
-    state = _load_or_404(payload.session_id)
+    state = _load_or_404(payload.session_id, request)
     if state.roadmap is None:
         raise HTTPException(status_code=400, detail="No roadmap for this session")
     node = state.roadmap.get_node(node_id)
@@ -722,12 +772,12 @@ class RegenerateRequest(BaseModel):
 
 
 @app.post("/topic/{node_id}/regenerate")
-def regenerate_topic(node_id: str, payload: RegenerateRequest):
+def regenerate_topic(node_id: str, payload: RegenerateRequest, request: Request):
     """Force-regenerates one module's project/quiz (and subtopics, if it
     already had any), picking up any profile/knowledge-base changes made
     since it was first generated. Refused for COMPLETE nodes - never
     rewrite a module the learner has already been graded on."""
-    state = _load_or_404(payload.session_id)
+    state = _load_or_404(payload.session_id, request)
     if state.roadmap is None:
         raise HTTPException(status_code=400, detail="No roadmap for this session")
     node = state.roadmap.get_node(node_id)
@@ -744,10 +794,10 @@ def regenerate_topic(node_id: str, payload: RegenerateRequest):
 
 
 @app.post("/roadmap/regenerate")
-def regenerate_roadmap(payload: RegenerateRequest):
+def regenerate_roadmap(payload: RegenerateRequest, request: Request):
     """Same as /topic/{id}/regenerate, applied to every not-yet-completed
     node in the roadmap."""
-    state = _load_or_404(payload.session_id)
+    state = _load_or_404(payload.session_id, request)
     if state.roadmap is None:
         raise HTTPException(status_code=400, detail="No roadmap for this session")
 
@@ -763,13 +813,13 @@ def regenerate_roadmap(payload: RegenerateRequest):
 
 
 @app.post("/roadmap/modify")
-def modify_roadmap(payload: RegenerateRequest):
+def modify_roadmap(payload: RegenerateRequest, request: Request):
     """"Modify with AI" on the (not-yet-confirmed) roadmap review screen -
     unlike /roadmap/regenerate above, this re-runs Path-A/Path-B's course
     selection itself (not just per-node content), so it can change WHICH
     topics appear, not just their wording. Only safe pre-confirm, while
     every node is still LOCKED and nothing has been graded yet."""
-    state = _load_or_404(payload.session_id)
+    state = _load_or_404(payload.session_id, request)
     if state.stage != ConversationStage.ROADMAP_REVIEW:
         raise HTTPException(
             status_code=400, detail="Roadmap can only be modified before it's confirmed"
@@ -792,8 +842,8 @@ def modify_roadmap(payload: RegenerateRequest):
 
 
 @app.post("/roadmap/explain/{node_id}")
-def explain_roadmap_node(node_id: str, payload: SessionIdRequest):
-    state = _load_or_404(payload.session_id)
+def explain_roadmap_node(node_id: str, payload: SessionIdRequest, request: Request):
+    state = _load_or_404(payload.session_id, request)
     try:
         explanation = run_explainer(state, node_id)
     except ValueError as exc:
@@ -802,12 +852,12 @@ def explain_roadmap_node(node_id: str, payload: SessionIdRequest):
 
 
 @app.post("/topic/{node_id}/refresh-web")
-def refresh_web_resources(node_id: str, payload: SessionIdRequest):
+def refresh_web_resources(node_id: str, payload: SessionIdRequest, request: Request):
     """'Find more resources' - works on any node, dataset-grounded or
     web-sourced. Only adds/refreshes web_sources/youtube_links/
     cheat_sheet_notes; never touches an already-filled node's project or
     quiz - see path_b.py's module docstring."""
-    state = _load_or_404(payload.session_id)
+    state = _load_or_404(payload.session_id, request)
     if state.roadmap is None:
         raise HTTPException(status_code=400, detail="No roadmap for this session")
     if state.roadmap.get_node(node_id) is None:
@@ -878,8 +928,8 @@ def _maybe_generate_final_content(state: AppState, node: RoadmapNode, llm_client
 
 
 @app.post("/topic/{node_id}/assessment/submit")
-def submit_assessment(node_id: str, payload: AssessmentSubmitRequest):
-    state = _load_or_404(payload.session_id)
+def submit_assessment(node_id: str, payload: AssessmentSubmitRequest, request: Request):
+    state = _load_or_404(payload.session_id, request)
     if state.roadmap is None:
         raise HTTPException(status_code=400, detail="No roadmap for this session")
     node = state.roadmap.get_node(node_id)
@@ -921,11 +971,11 @@ def submit_assessment(node_id: str, payload: AssessmentSubmitRequest):
 
 
 @app.get("/review/due/{session_id}")
-def get_due_reviews(session_id: str):
+def get_due_reviews(session_id: str, request: Request):
     """Spaced-repetition: topics whose next_review_at has passed - see
     REVIEW_INTERVALS_DAYS above. Set once a topic completes, pushed further
     out each time the learner answers its recall check correctly."""
-    state = _load_or_404(session_id)
+    state = _load_or_404(session_id, request)
     if state.roadmap is None:
         return {"due": []}
 
@@ -943,11 +993,11 @@ def get_due_reviews(session_id: str):
 
 
 @app.post("/review/{node_id}/generate")
-def generate_review_question(node_id: str, payload: SessionIdRequest):
+def generate_review_question(node_id: str, payload: SessionIdRequest, request: Request):
     """Picks one question at random from the topic's own final assessment -
     no LLM call, the topic's already been through its checkpoint quiz.
     Only meaningful for a COMPLETE node (see get_due_reviews)."""
-    state = _load_or_404(payload.session_id)
+    state = _load_or_404(payload.session_id, request)
     if state.roadmap is None:
         raise HTTPException(status_code=400, detail="No roadmap for this session")
     node = state.roadmap.get_node(node_id)
@@ -967,8 +1017,8 @@ class ReviewSubmitRequest(BaseModel):
 
 
 @app.post("/review/{node_id}/submit")
-def submit_review(node_id: str, payload: ReviewSubmitRequest):
-    state = _load_or_404(payload.session_id)
+def submit_review(node_id: str, payload: ReviewSubmitRequest, request: Request):
+    state = _load_or_404(payload.session_id, request)
     if state.roadmap is None:
         raise HTTPException(status_code=400, detail="No roadmap for this session")
     node = state.roadmap.get_node(node_id)
@@ -1006,8 +1056,8 @@ class TimeSpentRequest(BaseModel):
 
 
 @app.post("/topic/{node_id}/time")
-def record_time_spent(node_id: str, payload: TimeSpentRequest):
-    state = _load_or_404(payload.session_id)
+def record_time_spent(node_id: str, payload: TimeSpentRequest, request: Request):
+    state = _load_or_404(payload.session_id, request)
     if state.roadmap is None:
         raise HTTPException(status_code=400, detail="No roadmap for this session")
     node = state.roadmap.get_node(node_id)
@@ -1027,10 +1077,10 @@ class TopicNotesRequest(BaseModel):
 
 
 @app.patch("/topic/{node_id}/notes")
-def update_topic_notes(node_id: str, payload: TopicNotesRequest):
+def update_topic_notes(node_id: str, payload: TopicNotesRequest, request: Request):
     """The learner's own free-text notes on a topic - never surfaced
     anywhere else, purely their own reference."""
-    state = _load_or_404(payload.session_id)
+    state = _load_or_404(payload.session_id, request)
     if state.roadmap is None:
         raise HTTPException(status_code=400, detail="No roadmap for this session")
     node = state.roadmap.get_node(node_id)
@@ -1061,12 +1111,12 @@ def _unlock_next_subtopic(node: RoadmapNode) -> None:
 
 
 @app.post("/topic/{node_id}/subtopic/{subtopic_id}/quiz/generate")
-def generate_subtopic_quiz_route(node_id: str, subtopic_id: str, payload: SessionIdRequest):
+def generate_subtopic_quiz_route(node_id: str, subtopic_id: str, payload: SessionIdRequest, request: Request):
     """"Done Learning" - generates (or returns the already-generated) quiz
     for one sub-concept. Only the currently-available subtopic can start a
     quiz, matching the strictly-sequential order the roadmap's own topics
     already use."""
-    state = _load_or_404(payload.session_id)
+    state = _load_or_404(payload.session_id, request)
     node, subtopic = _get_node_and_subtopic(state, node_id, subtopic_id)
     if subtopic.status != SubtopicStatus.AVAILABLE:
         raise HTTPException(
@@ -1090,8 +1140,8 @@ class SubtopicQuizSubmitRequest(BaseModel):
 
 
 @app.post("/topic/{node_id}/subtopic/{subtopic_id}/quiz/submit")
-def submit_subtopic_quiz(node_id: str, subtopic_id: str, payload: SubtopicQuizSubmitRequest):
-    state = _load_or_404(payload.session_id)
+def submit_subtopic_quiz(node_id: str, subtopic_id: str, payload: SubtopicQuizSubmitRequest, request: Request):
+    state = _load_or_404(payload.session_id, request)
     node, subtopic = _get_node_and_subtopic(state, node_id, subtopic_id)
     if subtopic.quiz is None:
         raise HTTPException(status_code=400, detail="No quiz generated for this sub-concept yet")
@@ -1119,12 +1169,12 @@ def submit_subtopic_quiz(node_id: str, subtopic_id: str, payload: SubtopicQuizSu
 
 
 @app.post("/topic/{node_id}/subtopic/{subtopic_id}/skip")
-def skip_subtopic(node_id: str, subtopic_id: str, payload: SessionIdRequest):
+def skip_subtopic(node_id: str, subtopic_id: str, payload: SessionIdRequest, request: Request):
     """Per-subtopic skip is allowed (unlike the topic's own final quiz,
     which is mandatory) - moves straight to the next sub-concept and, if
     that was the last one, triggers the final quiz the same way passing
     would."""
-    state = _load_or_404(payload.session_id)
+    state = _load_or_404(payload.session_id, request)
     node, subtopic = _get_node_and_subtopic(state, node_id, subtopic_id)
     if subtopic.status != SubtopicStatus.AVAILABLE:
         raise HTTPException(status_code=400, detail="This sub-concept isn't available yet")
@@ -1157,8 +1207,8 @@ class ProfileUpdateRequest(BaseModel):
 
 
 @app.patch("/profile")
-def update_profile(payload: ProfileUpdateRequest):
-    state = _load_or_404(payload.session_id)
+def update_profile(payload: ProfileUpdateRequest, request: Request):
+    state = _load_or_404(payload.session_id, request)
     profile = state.learner_profile
 
     if payload.name is not None:
@@ -1202,8 +1252,8 @@ def update_profile(payload: ProfileUpdateRequest):
 
 
 @app.get("/analytics/{session_id}")
-def analytics(session_id: str):
-    state = _load_or_404(session_id)
+def analytics(session_id: str, request: Request):
+    state = _load_or_404(session_id, request)
 
     attempted_nodes = 0
     passed_nodes = 0
@@ -1317,8 +1367,8 @@ def _compute_badges(state: AppState) -> list[dict]:
 
 
 @app.get("/dashboard/{session_id}")
-def dashboard(session_id: str):
-    state = _load_or_404(session_id)
+def dashboard(session_id: str, request: Request):
+    state = _load_or_404(session_id, request)
     skill_radar = {a.concept: a.status.value for a in state.skill_gap_map.assessments}
     current_node = None
     percent_complete = 0.0
