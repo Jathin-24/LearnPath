@@ -99,6 +99,36 @@ Visit your Vercel URL, sign up, state a goal, and walk through onboarding.
 If the first backend request is slow (see the Render free-tier note
 above), that's expected - everything after should be normal speed.
 
+## 5. Alternative: one Docker image for the whole app
+
+Instead of separate hosts, the repo ships a multi-stage `Dockerfile` that
+builds the React SPA and serves it from the same FastAPI process on one port:
+
+```bash
+# From the repo root. Secrets come from your existing .env.
+docker build -t learnpath:latest .
+docker run -d -p 8000:8000 --env-file .env learnpath:latest
+# open http://localhost:8000  (API, SPA and /docs all on this one port)
+```
+
+Or with Compose (uses `.env` automatically):
+
+```bash
+docker compose up --build
+```
+
+Notes:
+
+- The frontend is built with `VITE_API_BASE_URL=""` (same origin), and
+  `backend/api/serve_frontend.py` mounts the built SPA on the app. The mount
+  is guarded - if `frontend/dist` is absent it no-ops, so the Render/Vercel
+  split deployment above is completely unaffected.
+- Pass real env vars exactly like the Render step (`--env-file .env`); there
+  is no `.env` inside the image, so `DATABASE_URL`, `LLM_PROVIDERS`,
+  `LLM_API_KEYS`, `LLM_MODELS` and `TAVILY_API_KEY` must come from the host.
+- `libgomp1` is installed in the image - the OpenMP runtime the `faiss-cpu`
+  and `scikit-learn` wheels need at runtime.
+
 ## Notes / gotchas
 
 - **Resume file storage** (`backend/common/db.py`'s `resume_files` table)

@@ -43,6 +43,7 @@ from backend.agents.roadmap_generator import (
     run_roadmap_generator,
 )
 from backend.agents.tutor import run_topic_tutor
+from backend.api.serve_frontend import mount_frontend
 from backend.common import db
 from backend.common.config import get_settings
 from backend.common.grading import grade_mcq_batch
@@ -1395,3 +1396,8 @@ def dashboard(session_id: str, request: Request):
         "longest_streak_days": state.longest_streak_days,
         "badges": _compute_badges(state),
     }
+
+# Single-image support (optional): serve the built React SPA from this same
+# process. Registered last so it never shadows an API route. No-ops when
+# frontend/dist isn't present, so the Render/Vercel deploys are unaffected.
+mount_frontend(app)

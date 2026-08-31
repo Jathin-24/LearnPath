@@ -10,7 +10,10 @@ export class ApiError extends Error {
   }
 }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+// `??` (not `||`) so an explicitly-empty VITE_API_BASE_URL means "same origin".
+// That is what the single-origin Docker image builds with; unset keeps the
+// local-dev default.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
 interface RequestOptions extends RequestInit {
   data?: any;

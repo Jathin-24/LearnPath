@@ -1,0 +1,24 @@
+# Secrets & local state
+.env
+.venv
+venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+*.egg-info
+
+# Frontend local build artifacts (frontend/dist is re-created inside the image)
+frontend/node_modules
+frontend/dist
+frontend/.vercel
+frontend/devserver.log
+
+# Delta-sharing / tooling
+.claude
+.git
+
+# Package deliverables (not needed in the image)
+LearnPath_submission.zip
+*.pdf
+*.pptx
+docs
