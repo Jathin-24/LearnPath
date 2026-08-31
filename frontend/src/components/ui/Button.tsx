@@ -12,14 +12,14 @@ export interface ButtonProps
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant = "primary", size = "md", isLoading, children, disabled, ...props }, ref) => {
     
-    const baseStyles = "inline-flex items-center justify-center rounded-xl font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-400 disabled:pointer-events-none disabled:opacity-50 shadow-sm";
+    const baseStyles = "inline-flex items-center justify-center rounded-xl font-semibold transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-700/50 disabled:pointer-events-none disabled:opacity-50";
     
     const variants = {
-      primary: "bg-slate-100 text-slate-900 hover:bg-slate-200 shadow-slate-950/50",
-      secondary: "bg-slate-800 text-slate-100 hover:bg-slate-800",
-      outline: "border border-slate-700 bg-transparent text-slate-100 hover:bg-slate-800",
-      ghost: "shadow-none bg-transparent hover:bg-white/10 text-slate-100",
-      danger: "bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20 shadow-none",
+      primary: "bg-emerald-800 text-amber-50 shadow-[0_10px_24px_rgba(13,89,55,0.22)] hover:-translate-y-0.5 hover:bg-emerald-900 hover:shadow-[0_14px_28px_rgba(13,89,55,0.3)]",
+      secondary: "bg-emerald-100 text-emerald-950 hover:-translate-y-0.5 hover:bg-emerald-200",
+      outline: "border border-emerald-900/15 bg-amber-50/60 text-emerald-950 hover:-translate-y-0.5 hover:border-emerald-700/30 hover:bg-emerald-50",
+      ghost: "bg-transparent text-emerald-900 shadow-none hover:bg-emerald-900/8",
+      danger: "border border-red-700/15 bg-red-50 text-red-700 shadow-none hover:bg-red-100",
     };
 
     const sizes = {

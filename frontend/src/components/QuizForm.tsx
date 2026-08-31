@@ -23,8 +23,8 @@ export default function QuizForm({ questions, onSubmit, submitting }: Props) {
   return (
     <div className="space-y-6">
       {questions.map((q, qIndex) => (
-        <div key={qIndex} className="rounded-lg border border-slate-800 bg-slate-900 p-4">
-          <p className="mb-3 text-sm font-medium text-slate-100">
+        <div key={qIndex} className="rounded-2xl border border-emerald-950/10 bg-white/55 p-5">
+          <p className="mb-4 text-sm font-semibold text-emerald-950">
             {qIndex + 1}. {q.question}
           </p>
           <div className="space-y-2">
@@ -33,8 +33,8 @@ export default function QuizForm({ questions, onSubmit, submitting }: Props) {
                 key={option}
                 className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition ${
                   answers[qIndex] === option
-                    ? "border-slate-400 bg-slate-400/10"
-                    : "border-slate-800 hover:border-slate-600"
+                    ? "border-emerald-700/45 bg-emerald-100 text-emerald-950"
+                    : "border-emerald-950/10 bg-amber-50/50 text-emerald-950/75 hover:border-emerald-700/28"
                 }`}
               >
                 <input
@@ -42,7 +42,7 @@ export default function QuizForm({ questions, onSubmit, submitting }: Props) {
                   name={`q-${qIndex}`}
                   checked={answers[qIndex] === option}
                   onChange={() => selectOption(qIndex, option)}
-                  className="accent-slate-400"
+                  className="accent-emerald-700"
                 />
                 {option}
               </label>
@@ -53,7 +53,7 @@ export default function QuizForm({ questions, onSubmit, submitting }: Props) {
       <button
         onClick={() => onSubmit(answers)}
         disabled={!allAnswered || submitting}
-        className="rounded-full bg-slate-100 px-6 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-200 disabled:opacity-50"
+        className="rounded-xl bg-emerald-800 px-6 py-3 text-sm font-semibold text-amber-50 transition hover:-translate-y-0.5 hover:bg-emerald-900 disabled:opacity-50"
       >
         {submitting ? "Submitting..." : "Submit Quiz"}
       </button>

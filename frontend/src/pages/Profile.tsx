@@ -27,10 +27,10 @@ const CATEGORY_LABEL: Record<string, string> = {
 };
 
 const SKILL_STATUS_COLOR: Record<string, string> = {
-  known: "text-green-400",
-  claimed_unconfirmed: "text-yellow-400",
-  gap: "text-red-400",
-  learned: "text-emerald-400",
+  known: "bg-emerald-100 text-emerald-800",
+  claimed_unconfirmed: "bg-amber-100 text-amber-800",
+  gap: "bg-red-50 text-red-700",
+  learned: "bg-lime-100 text-lime-800",
 };
 
 function toCommaList(items: string[]): string {
@@ -47,14 +47,14 @@ function fromCommaList(value: string): string[] {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <label className="block text-xs font-semibold text-slate-400 tracking-wide">{label}</label>
+      <label className="block text-xs font-semibold tracking-wide text-emerald-950/62">{label}</label>
       {children}
     </div>
   );
 }
 
 const inputClass =
-  "w-full rounded-xl bg-slate-900 border border-slate-700 px-4 py-2.5 text-sm text-slate-100 outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-400 transition-all placeholder:text-slate-500";
+  "w-full rounded-xl border border-emerald-950/15 bg-white/60 px-4 py-2.5 text-sm text-emerald-950 outline-none transition-all placeholder:text-emerald-950/38 focus:border-emerald-700/40 focus:bg-white focus:ring-4 focus:ring-emerald-700/10";
 
 export default function Profile() {
   const navigate = useNavigate();
@@ -294,7 +294,7 @@ export default function Profile() {
 
   if (!sessionId || !state) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100">
+      <div className="min-h-screen bg-[#f7f5ed] text-emerald-950">
         <PageSkeleton />
       </div>
     );
@@ -304,17 +304,17 @@ export default function Profile() {
 
   const resumeSection = (
     <div 
-      className={`glass-panel p-6 rounded-2xl animate-fade-in-up transition-colors duration-300 ${isDragging ? "border-slate-400 bg-slate-400/10" : ""}`}
+      className={`lp-surface p-6 rounded-2xl animate-fade-in-up transition-colors duration-300 ${isDragging ? "border-emerald-700/40 bg-emerald-100" : ""}`}
       style={{ animationDelay: '0.1s' }}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
       <div className="flex items-center gap-3 mb-3">
-        <FileText className="w-5 h-5 text-slate-300" />
-        <h2 className="text-base font-semibold text-slate-100 font-display">Resume</h2>
+        <FileText className="w-5 h-5 text-emerald-700" />
+        <h2 className="text-base font-semibold text-emerald-950 font-display">Resume</h2>
       </div>
-      <p className="mb-4 text-sm text-slate-400 leading-relaxed">
+      <p className="mb-4 text-sm text-emerald-950/62 leading-relaxed">
         {isRequired
           ? "Upload a PDF and we'll auto-fill as much of the form below as we can find - " +
             "name, age, gender, skills, certifications, hobbies, and more. Anything it can't " +
@@ -323,13 +323,13 @@ export default function Profile() {
             "auto-fill your profile below, and use it to personalize your roadmap and chats."}
       </p>
       {state.learner_profile.resume_filename && (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-400/20 bg-slate-400/5 px-4 py-3 text-sm">
-          <span className="truncate text-slate-200 font-medium flex items-center gap-2">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-700/15 bg-emerald-100/60 px-4 py-3 text-sm">
+          <span className="flex items-center gap-2 truncate font-medium text-emerald-950">
             <FileText className="w-4 h-4" /> {state.learner_profile.resume_filename}
             {state.learner_profile.resume_uploaded_at && (
-              <span className="text-slate-300/60 font-normal">
+              <span className="font-normal text-emerald-950/50">
                 {" "}
-                Â· uploaded {new Date(state.learner_profile.resume_uploaded_at).toLocaleDateString()}
+                · uploaded {new Date(state.learner_profile.resume_uploaded_at).toLocaleDateString()}
               </span>
             )}
           </span>
@@ -343,7 +343,7 @@ export default function Profile() {
                 setResumeError("Couldn't load your resume PDF.");
               }
             }}
-            className="shrink-0 text-slate-300 font-medium hover:text-slate-300 transition-colors"
+            className="shrink-0 font-semibold text-emerald-800 transition-colors hover:text-emerald-950"
           >
             View PDF
           </button>
@@ -359,7 +359,7 @@ export default function Profile() {
       <button
         onClick={() => fileInputRef.current?.click()}
         disabled={uploading}
-        className="flex items-center gap-2 rounded-xl bg-slate-800 border border-slate-700 px-5 py-2.5 text-sm font-semibold text-white transition-all hover:bg-slate-700 disabled:opacity-50"
+        className="flex items-center gap-2 rounded-xl bg-emerald-800 px-5 py-2.5 text-sm font-semibold text-amber-50 transition-all hover:-translate-y-0.5 hover:bg-emerald-900 disabled:opacity-50"
       >
         <Upload className="w-4 h-4" />
         {uploading
@@ -374,24 +374,24 @@ export default function Profile() {
         </div>
       )}
       {resumeSaved && !uploading && (
-        <div className="mt-4 flex items-center gap-2 text-sm text-green-400 bg-green-500/10 border border-green-500/20 px-4 py-2.5 rounded-xl">
+        <div className="mt-4 flex items-center gap-2 rounded-xl border border-emerald-700/15 bg-emerald-100 px-4 py-2.5 text-sm text-emerald-800">
           <CheckCircle className="w-4 h-4" /> Resume read successfully - fields below were auto-filled.
         </div>
       )}
-      {resumeError && <p className="mt-3 text-sm text-red-400 bg-red-500/10 border border-red-500/20 px-4 py-2 rounded-lg">{resumeError}</p>}
+      {resumeError && <p role="alert" className="mt-3 rounded-lg border border-red-700/15 bg-red-50 px-4 py-2 text-sm text-red-700">{resumeError}</p>}
     </div>
   );
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 pb-20 relative overflow-hidden">
+    <div className="min-h-screen bg-[#f7f5ed] text-emerald-950 pb-20 relative overflow-hidden">
       <div className="relative z-10 mx-auto max-w-3xl space-y-8 px-6 py-10">
-        <div className="glass-panel p-8 rounded-3xl animate-fade-in-up">
-          <h1 className="text-3xl font-bold font-display tracking-tight text-slate-100 mb-2">Your Profile</h1>
-          <p className="text-base text-slate-400 font-medium">
+        <div className="lp-surface p-8 rounded-3xl animate-fade-in-up">
+          <h1 className="text-3xl font-bold font-display tracking-tight text-emerald-950 mb-2">Your Profile</h1>
+          <p className="text-base text-emerald-950/62 font-medium">
             This is what we&apos;ve gathered about you so far. Fix anything that&apos;s wrong - it shapes your roadmap.
           </p>
           {isRequired && (
-            <div className="mt-4 rounded-xl border border-slate-400/30 bg-slate-400/10 px-5 py-4 text-sm text-slate-200 font-medium">
+            <div className="mt-4 rounded-xl border border-emerald-700/20 bg-emerald-100/70 px-5 py-4 text-sm text-emerald-900 font-medium">
               Welcome! Fill in a few required details before we get started - or upload your
               resume below and we'll fill in what we can for you.
             </div>
@@ -402,8 +402,8 @@ export default function Profile() {
 
         <div className="glass-panel p-8 rounded-3xl animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
           <div className="flex items-center gap-3 mb-6">
-            <User className="w-5 h-5 text-slate-300" />
-            <h2 className="text-lg font-semibold text-slate-100 font-display">Personal Details</h2>
+            <User className="h-5 w-5 text-emerald-700" />
+            <h2 className="text-lg font-semibold text-emerald-950 font-display">Personal Details</h2>
           </div>
           <div className="grid gap-6 sm:grid-cols-2">
             <Field label="Name *">
@@ -442,7 +442,7 @@ export default function Profile() {
                   <option value="student">Student</option>
                   <option value="working_professional">Working Professional</option>
                 </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-slate-400">
+                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-emerald-950/45">
                   <svg className="h-4 w-4 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
                     <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
                   </svg>
@@ -474,8 +474,8 @@ export default function Profile() {
 
         <div className="glass-panel p-8 rounded-3xl animate-fade-in-up" style={{ animationDelay: '0.3s' }}>
           <div className="flex items-center gap-3 mb-6">
-            <Brain className="w-5 h-5 text-slate-300" />
-            <h2 className="text-lg font-semibold text-slate-100 font-display">Learning Profile</h2>
+            <Brain className="h-5 w-5 text-emerald-700" />
+            <h2 className="text-lg font-semibold text-emerald-950 font-display">Learning Profile</h2>
           </div>
           <div className="space-y-5">
             <Field label="Goal">
@@ -519,10 +519,10 @@ export default function Profile() {
 
         <div className="glass-panel p-8 rounded-3xl animate-fade-in-up" style={{ animationDelay: '0.4s' }}>
           <div className="flex items-center gap-3 mb-4">
-            <PenTool className="w-5 h-5 text-slate-300" />
-            <h2 className="text-lg font-semibold text-slate-100 font-display">Extra Information</h2>
+            <PenTool className="h-5 w-5 text-emerald-700" />
+            <h2 className="text-lg font-semibold text-emerald-950 font-display">Extra Information</h2>
           </div>
-          <p className="text-sm text-slate-400 mb-4 leading-relaxed">
+          <p className="mb-4 text-sm leading-relaxed text-emerald-950/60">
             Anything else worth knowing that doesn&apos;t fit the fields above - awards,
             publications, languages, volunteer work, open-source contributions, etc. Pulled
             automatically from your resume where possible; edit freely. This feeds into how
@@ -539,10 +539,10 @@ export default function Profile() {
 
         <div className="glass-panel p-8 rounded-3xl animate-fade-in-up" style={{ animationDelay: '0.45s' }}>
           <div className="flex items-center gap-3 mb-4">
-            <Target className="w-5 h-5 text-slate-300" />
-            <h2 className="text-lg font-semibold text-slate-100 font-display">Personalization</h2>
+            <Target className="h-5 w-5 text-emerald-700" />
+            <h2 className="text-lg font-semibold text-emerald-950 font-display">Personalization</h2>
           </div>
-          <p className="text-sm text-slate-400 mb-4 leading-relaxed">
+          <p className="mb-4 text-sm leading-relaxed text-emerald-950/60">
             Provide explicit instructions on how you want your roadmap generated.
           </p>
           <textarea
@@ -554,15 +554,15 @@ export default function Profile() {
           />
         </div>
 
-        <div className="sticky bottom-6 z-20 mx-auto max-w-3xl glass-panel p-4 rounded-2xl flex items-center justify-between gap-4 animate-fade-in-up" style={{ animationDelay: '0.5s' }}>
+        <div className="glass-panel sticky bottom-6 z-20 mx-auto flex max-w-3xl items-center justify-between gap-4 rounded-2xl p-4 animate-fade-in-up" style={{ animationDelay: '0.5s' }}>
           <div className="flex-1">
-            {saved && !isRequired && <p className="text-sm font-medium text-green-400 bg-green-500/10 px-3 py-1.5 rounded-lg inline-block">Saved successfully.</p>}
+            {saved && !isRequired && <p className="inline-block rounded-lg bg-emerald-100 px-3 py-1.5 text-sm font-medium text-emerald-800">Saved successfully.</p>}
           </div>
           {isRequired ? (
             <button
               onClick={() => handleSave(true)}
               disabled={saving || !requiredFieldsFilled}
-              className="rounded-xl bg-slate-100 px-8 py-3 text-sm font-bold text-slate-900 transition-all hover:bg-slate-200 hover:scale-105 hover:shadow-lg hover:shadow-slate-950/50 disabled:opacity-50"
+              className="rounded-xl bg-emerald-800 px-8 py-3 text-sm font-bold text-amber-50 transition-all hover:-translate-y-0.5 hover:bg-emerald-900 disabled:opacity-50"
             >
               {saving ? "Saving..." : "Continue to Chat"}
             </button>
@@ -570,7 +570,7 @@ export default function Profile() {
             <button
               onClick={() => handleSave(false)}
               disabled={saving}
-              className="rounded-xl bg-slate-100 px-8 py-3 text-sm font-bold text-slate-900 transition-all hover:bg-slate-200 hover:scale-105 hover:shadow-lg hover:shadow-slate-950/50 disabled:opacity-50"
+              className="rounded-xl bg-emerald-800 px-8 py-3 text-sm font-bold text-amber-50 transition-all hover:-translate-y-0.5 hover:bg-emerald-900 disabled:opacity-50"
             >
               {saving ? "Saving..." : "Save Profile"}
             </button>
@@ -583,9 +583,9 @@ export default function Profile() {
               <div className="glass-panel p-8 rounded-3xl">
                 <div className="flex items-center gap-3 mb-4">
                   <Lightbulb className="w-5 h-5 text-amber-400" />
-                  <h2 className="text-lg font-semibold text-slate-100 font-display">Key Points</h2>
+                  <h2 className="text-lg font-semibold text-emerald-950 font-display">Personalization memory</h2>
                 </div>
-                <p className="mb-6 text-sm text-slate-400 leading-relaxed">
+                <p className="mb-6 text-sm leading-relaxed text-emerald-950/60">
                   Extracted from what you&apos;ve imported or uploaded. Remove anything that&apos;s
                   wrong - it feeds directly into how your roadmap is shaped.
                 </p>
@@ -596,20 +596,21 @@ export default function Profile() {
                       return acc;
                     }, {}),
                   ).map(([category, entries]) => (
-                    <div key={category} className="bg-slate-900/50 rounded-xl p-4 border border-slate-800">
-                      <h3 className="mb-3 text-xs font-bold text-slate-400 uppercase tracking-wider">
+                    <div key={category} className="rounded-xl border border-emerald-950/10 bg-white/55 p-4">
+                      <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-emerald-800">
                         {CATEGORY_LABEL[category] ?? category}
                       </h3>
                       <ul className="space-y-2">
                         {entries.map((entry) => (
                           <li
                             key={entry.id}
-                            className="flex items-start justify-between gap-3 text-sm text-slate-100 group"
+                            className="group flex items-start justify-between gap-3 text-sm text-emerald-950"
                           >
                             <span className="leading-snug">{entry.content}</span>
                             <button
                               onClick={() => handleDeleteKnowledge(entry.id)}
-                              className="shrink-0 p-1.5 rounded-lg bg-slate-800 text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors opacity-0 group-hover:opacity-100"
+                              className="shrink-0 rounded-lg bg-emerald-950/5 p-1.5 text-emerald-950/40 opacity-0 transition-colors hover:bg-red-50 hover:text-red-700 focus:opacity-100 group-hover:opacity-100"
+                              aria-label={`Remove ${entry.content}`}
                               title="Remove"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -628,10 +629,10 @@ export default function Profile() {
             <div className="grid sm:grid-cols-2 gap-8">
               <div className="glass-panel p-6 rounded-2xl flex flex-col">
                 <div className="flex items-center gap-3 mb-3">
-                  <Import className="w-5 h-5 text-slate-300" />
-                  <h2 className="text-base font-semibold text-slate-100 font-display">Import from another AI</h2>
+                  <Import className="h-5 w-5 text-emerald-700" />
+                  <h2 className="text-base font-semibold text-emerald-950 font-display">Import from another AI</h2>
                 </div>
-                <p className="mb-4 text-sm text-slate-400 leading-relaxed">
+                <p className="mb-4 text-sm leading-relaxed text-emerald-950/60">
                   Paste your previous AI-generated learning/profile summary.
                 </p>
                 <textarea 
@@ -645,11 +646,11 @@ export default function Profile() {
                   <button
                     onClick={handleImportContext}
                     disabled={importingContext || !importText.trim()}
-                    className="w-fit rounded-xl bg-slate-800 border border-slate-700 px-5 py-2.5 text-sm font-semibold text-slate-100 transition-all hover:bg-slate-700 disabled:opacity-50"
+                    className="w-fit rounded-xl bg-emerald-100 px-5 py-2.5 text-sm font-semibold text-emerald-900 transition-all hover:bg-emerald-200 disabled:opacity-50"
                   >
                     {importingContext ? "Importing..." : "Import Context"}
                   </button>
-                  {importSuccess && <span className="text-green-400 text-sm font-medium">Imported!</span>}
+                  {importSuccess && <span className="text-sm font-medium text-emerald-800">Imported!</span>}
                 </div>
               </div>
 
@@ -657,7 +658,7 @@ export default function Profile() {
                 <div className="glass-panel p-6 rounded-2xl border-red-500/30 bg-red-500/5 flex flex-col justify-between">
                   <div>
                     <div className="flex items-center gap-3 mb-3">
-                      <RotateCcw className="w-5 h-5 text-red-400" />
+                      <RotateCcw className="h-5 w-5 text-red-700" />
                       <h2 className="text-base font-semibold text-red-100 font-display">Start a New Goal</h2>
                     </div>
                     <p className="mb-6 text-sm text-red-200/60 leading-relaxed">
@@ -668,7 +669,7 @@ export default function Profile() {
                   <button
                     onClick={handleStartNewGoal}
                     disabled={restarting}
-                    className="w-fit rounded-xl bg-red-500/10 border border-red-500/20 px-5 py-2.5 text-sm font-semibold text-red-400 transition-all hover:bg-red-500/20 hover:text-red-300 disabled:opacity-50"
+                    className="w-fit rounded-xl border border-red-700/15 bg-red-50 px-5 py-2.5 text-sm font-semibold text-red-700 transition-all hover:bg-red-100 disabled:opacity-50"
                   >
                     {restarting ? "Starting..." : "Start a new goal"}
                   </button>
@@ -678,24 +679,24 @@ export default function Profile() {
 
             <div className="glass-panel p-8 rounded-3xl">
               <div className="flex items-center gap-3 mb-4">
-                <Target className="w-5 h-5 text-slate-300" />
-                <h2 className="text-lg font-semibold text-slate-100 font-display">
+                <Target className="h-5 w-5 text-emerald-700" />
+                <h2 className="text-lg font-semibold text-emerald-950 font-display">
                   Skill Assessment Results
                 </h2>
               </div>
-              <p className="mb-6 text-sm text-slate-400">
+              <p className="mb-6 text-sm text-emerald-950/60">
                 Read-only - these come from your quiz results, not self-reported.
               </p>
               {assessments.length === 0 ? (
-                <div className="bg-slate-900/50 rounded-xl p-6 text-center border border-slate-800">
-                  <p className="text-sm font-medium text-slate-500">No skills assessed yet.</p>
+                <div className="rounded-xl border border-emerald-950/10 bg-white/55 p-6 text-center">
+                  <p className="text-sm font-medium text-emerald-950/48">No skills assessed yet.</p>
                 </div>
               ) : (
                 <div className="grid gap-3 sm:grid-cols-2">
                   {assessments.map((a) => (
-                    <div key={a.concept} className="flex items-center justify-between p-4 bg-slate-900/50 border border-slate-800 rounded-xl">
-                      <span className="text-sm font-medium text-slate-100">{a.concept}</span>
-                      <span className={`px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wider ${SKILL_STATUS_COLOR[a.status] ?? "text-slate-400"}`}>
+                    <div key={a.concept} className="flex items-center justify-between rounded-xl border border-emerald-950/10 bg-white/55 p-4">
+                      <span className="text-sm font-medium text-emerald-950">{a.concept}</span>
+                      <span className={`rounded-md px-2.5 py-1 text-xs font-bold uppercase tracking-wider ${SKILL_STATUS_COLOR[a.status] ?? "text-emerald-950/50"}`}>
                         {a.status.replace("_", " ")}
                       </span>
                     </div>

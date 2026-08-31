@@ -24,6 +24,9 @@ import {
 
 import { getAnalytics } from "../api";
 import PageSkeleton from "../components/Skeleton";
+import { DimensionalOrb } from "../components/ui/DimensionalOrb";
+import { EmptyState } from "../components/ui/EmptyState";
+import { PageHeader } from "../components/ui/PageHeader";
 import { useAppState } from "../context/AppStateContext";
 import type { AnalyticsResponse } from "../types";
 
@@ -121,41 +124,28 @@ export default function Analytics() {
       : 0;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 pb-24 font-sans">
+    <div className="min-h-screen pb-24 font-sans">
       <div className="mx-auto max-w-5xl px-4 py-8 relative">
-        {/* Background glow effects */}
+        <DimensionalOrb className="pointer-events-none absolute -right-12 -top-4 h-44 w-44 opacity-50" />
 
         <div className="relative z-10 flex flex-col gap-8">
           {/* Header */}
-          <div className="space-y-2 animate-fade-in-up">
-            <h1 className="text-3xl font-bold font-display text-slate-100 tracking-tight flex items-center gap-3">
-              <BarChart3 className="w-8 h-8 text-slate-300" />
-              Learning Analytics
-            </h1>
-            <p className="text-slate-200/80 text-sm font-medium">
-              Track your progress, time investment, and skill growth.
-            </p>
-          </div>
+          <PageHeader
+            eyebrow="Learning intelligence"
+            title="Your progress, made visible."
+            description="Track your focus, learning time, and skill growth as your roadmap takes shape."
+            actions={<div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-800"><BarChart3 className="h-5 w-5" aria-hidden="true" /></div>}
+          />
 
           {isNewLearner ? (
             /* Empty State */
-            <div className="glass-panel p-12 rounded-3xl flex flex-col items-center justify-center text-center animate-fade-in-up border border-slate-400/20 mt-8">
-              <div className="bg-slate-400/10 p-6 rounded-full mb-6">
-                <Target className="w-12 h-12 text-slate-300" />
-              </div>
-              <h2 className="text-2xl font-bold text-slate-100 mb-2 font-display">
-                Not enough learning activity yet
-              </h2>
-              <p className="text-slate-400 max-w-md mx-auto mb-8">
-                Your analytics dashboard will populate with insights, charts, and progress metrics once you start completing topics and logging study time.
-              </p>
-              <Link
-                to="/app"
-className="flex items-center gap-2 rounded-xl bg-slate-100 px-6 py-3 font-bold text-slate-900 transition hover:bg-slate-200 shadow-lg shadow-slate-950/50"
-                >
-                  Go to Dashboard <ArrowRight className="w-4 h-4" />
-              </Link>
-            </div>
+            <EmptyState
+              className="mt-2 animate-fade-in-up"
+              icon={<Target className="h-6 w-6" aria-hidden="true" />}
+              title="Your story starts with one focused session."
+              description="Insights will appear here once you begin completing topics and recording time on your roadmap."
+              action={<Link to="/app" className="inline-flex items-center gap-2 rounded-xl bg-emerald-800 px-5 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-emerald-900">Open dashboard <ArrowRight className="h-4 w-4" aria-hidden="true" /></Link>}
+            />
           ) : (
             <>
               {/* Top Summary Cards */}
@@ -251,27 +241,27 @@ className="flex items-center gap-2 rounded-xl bg-slate-100 px-6 py-3 font-bold t
                       <div className="min-w-[400px]">
                         <ResponsiveContainer width="100%" height={Math.max(250, chartData.length * 45)}>
                           <BarChart data={chartData} layout="vertical" margin={{ left: 10, right: 20, top: 0, bottom: 0 }}>
-                            <CartesianGrid stroke="#1e293b" horizontal={false} strokeDasharray="3 3" />
+                            <CartesianGrid stroke="#cce8d1" horizontal={false} strokeDasharray="3 3" />
                             <XAxis
                               type="number"
-                              tick={{ fill: "#64748b", fontSize: 11 }}
-                              label={{ value: "Minutes", position: "insideBottom", offset: -5, fill: "#64748b", fontSize: 10 }}
-                              axisLine={{ stroke: '#334155' }}
-                              tickLine={{ stroke: '#334155' }}
+                              tick={{ fill: "#5b7067", fontSize: 11 }}
+                              label={{ value: "Minutes", position: "insideBottom", offset: -5, fill: "#5b7067", fontSize: 10 }}
+                              axisLine={{ stroke: '#cce8d1' }}
+                              tickLine={{ stroke: '#cce8d1' }}
                             />
                             <YAxis
                               type="category"
                               dataKey="topic"
                               width={140}
-                              tick={{ fill: "#cbd5e1", fontSize: 12, fontWeight: 500 }}
-                              axisLine={{ stroke: '#334155' }}
+                              tick={{ fill: "#17382e", fontSize: 12, fontWeight: 500 }}
+                              axisLine={{ stroke: '#cce8d1' }}
                               tickLine={false}
                             />
                             <Tooltip
-                              cursor={{ fill: '#1e293b' }}
-                              contentStyle={{ background: "#0f172a", border: "1px solid #334155", borderRadius: 12, boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.5)" }}
-                              labelStyle={{ color: "#f8fafc", fontWeight: 600, marginBottom: 4 }}
-                              itemStyle={{ color: "#e2e8f0" }}
+                              cursor={{ fill: '#e8f3e9' }}
+                              contentStyle={{ background: "#fffdf7", border: "1px solid #cce8d1", borderRadius: 12, boxShadow: "0 10px 15px -3px rgba(18, 66, 43, 0.12)" }}
+                              labelStyle={{ color: "#17382e", fontWeight: 600, marginBottom: 4 }}
+                              itemStyle={{ color: "#16784c" }}
                               formatter={(value: any) => [`${value} min`, "Time spent"]}
                               labelFormatter={(_, payload) => payload?.[0]?.payload?.fullTopic || "Topic"}
                             />
@@ -282,8 +272,8 @@ className="flex items-center gap-2 rounded-xl bg-slate-100 px-6 py-3 font-bold t
                             </Bar>
                             <defs>
                               <linearGradient id="colorIndigo" x1="0" y1="0" x2="1" y2="0">
-                                <stop offset="0%" stopColor="#64748b" />
-                                <stop offset="100%" stopColor="#94a3b8" />
+                                <stop offset="0%" stopColor="#16784c" />
+                                <stop offset="100%" stopColor="#78c985" />
                               </linearGradient>
                             </defs>
                           </BarChart>

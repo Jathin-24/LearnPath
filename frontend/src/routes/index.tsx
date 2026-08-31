@@ -7,12 +7,14 @@ import ProfilePage from "../pages/Profile";
 import TopicPage from "../pages/TopicDetail";
 import AnalyticsPage from "../pages/Analytics";
 import ImportContextPage from "../pages/ImportContext";
+import RouteError from "../pages/RouteError";
 import StageRouter from "../components/StageRouter";
 
 export const router = createBrowserRouter([
   {
     path: "/",
     element: <App />,
+    errorElement: <RouteError />,
     children: [
       { path: "/", element: <Home /> },
       { path: "/login", element: <LoginPage /> },
@@ -24,4 +26,5 @@ export const router = createBrowserRouter([
       { path: "/analytics", element: <AnalyticsPage /> },
     ],
   },
+  { path: "*", element: <RouteError /> },
 ]);

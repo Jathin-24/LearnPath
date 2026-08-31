@@ -13,6 +13,8 @@ import {
 import BuildingIndicator from "../components/BuildingIndicator";
 import RoadmapTimeline from "../components/RoadmapTimeline";
 import PageSkeleton from "../components/Skeleton";
+import { PageHeader } from "../components/ui/PageHeader";
+import { DimensionalOrb } from "../components/ui/DimensionalOrb";
 import { useAppState } from "../context/AppStateContext";
 import { useToast } from "../context/ToastContext";
 import type { DashboardResponse, DueReview, MCQQuestion, QuestionResult } from "../types";
@@ -101,7 +103,7 @@ export default function Dashboard() {
 
   if (!sessionId || !dashboard || !state) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+      <div className="min-h-screen bg-[#f7f5ed] text-emerald-950 flex flex-col">
         <PageSkeleton />
       </div>
     );
@@ -143,7 +145,7 @@ export default function Dashboard() {
   const totalSkills = assessments.length || 1; // avoid division by zero
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 pb-24 font-sans">
+    <div className="min-h-screen bg-[#f7f5ed] text-emerald-950 pb-24 font-sans">
       <div className="mx-auto max-w-7xl px-4 py-8 relative">
         {/* Background glow effects */}
 
@@ -153,14 +155,7 @@ export default function Dashboard() {
           <div className="md:col-span-7 flex flex-col gap-8 order-1">
             
             {/* Section 1: Welcome Header */}
-            <div className="space-y-2 animate-fade-in-up">
-              <h1 className="text-3xl font-bold font-display text-slate-100 tracking-tight">
-                Welcome back, {learner_profile.name || "Learner"}!
-              </h1>
-              {learner_profile.goal && (
-                <p className="text-slate-200/80 text-sm font-medium">Goal: {learner_profile.goal}</p>
-              )}
-            </div>
+            <PageHeader eyebrow="Your learning space" title={`Welcome back, ${learner_profile.name || "Learner"}!`} description={learner_profile.goal ? `Your goal: ${learner_profile.goal}` : "Your next focused step is ready."} actions={<DimensionalOrb />} className="animate-fade-in-up" />
 
             {/* Section 2: Continue Learning */}
             {availableNode && (
