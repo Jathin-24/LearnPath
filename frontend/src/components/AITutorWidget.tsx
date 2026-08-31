@@ -79,10 +79,10 @@ export default function AITutorWidget() {
       {!isTutorOpen && (
         <button
           onClick={() => setTutorOpen(true)}
-          className="fixed bottom-6 right-6 md:bottom-10 md:right-10 z-50 flex items-center justify-center gap-2 rounded-full bg-slate-100 px-5 py-4 shadow-lg shadow-slate-950/50 transition-all hover:bg-slate-200 hover:scale-105 active:scale-95 group"
+          className="fixed bottom-6 right-6 z-50 flex items-center justify-center gap-2 rounded-full border border-emerald-700 bg-emerald-800 px-5 py-4 text-white shadow-[0_18px_45px_rgba(13,89,55,0.28)] transition-all hover:-translate-y-1 hover:bg-emerald-900 active:scale-95 md:bottom-10 md:right-10"
         >
-          <Sparkles className="w-5 h-5 text-slate-600" />
-          <span className="font-bold text-slate-900 text-sm">Ask AI Tutor</span>
+          <Sparkles className="w-5 h-5 text-emerald-100" />
+          <span className="text-sm font-bold">Ask AI Tutor</span>
         </button>
       )}
 
@@ -91,26 +91,26 @@ export default function AITutorWidget() {
         <>
           {/* Mobile Overlay */}
           <div 
-            className="fixed inset-0 z-40 bg-slate-800 backdrop-blur-sm md:hidden animate-in fade-in" 
+            className="fixed inset-0 z-40 bg-emerald-950/25 backdrop-blur-sm md:hidden animate-in fade-in"
             onClick={() => setTutorOpen(false)} 
           />
 
-          <div className="fixed bottom-0 left-0 right-0 z-50 flex h-[85vh] w-full flex-col overflow-hidden rounded-t-3xl border-t border-slate-400/30 bg-slate-900 shadow-2xl backdrop-blur-xl transition-transform duration-300 ease-out md:bottom-10 md:left-auto md:right-10 md:h-[650px] md:w-[420px] md:rounded-3xl md:border md:border-slate-800 md:shadow-slate-950/50 animate-in slide-in-from-bottom-full md:slide-in-from-bottom-4 md:slide-in-from-right-4">
+          <div className="fixed bottom-0 left-0 right-0 z-50 flex h-[85vh] w-full flex-col overflow-hidden rounded-t-[2rem] border border-emerald-950/10 bg-[#fffdf7]/95 shadow-[0_25px_80px_rgba(13,89,55,0.22)] backdrop-blur-xl transition-transform duration-300 ease-out md:bottom-10 md:left-auto md:right-10 md:h-[650px] md:w-[420px] md:rounded-[2rem] animate-in slide-in-from-bottom-full md:slide-in-from-bottom-4 md:slide-in-from-right-4">
             
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-slate-800 bg-slate-800 px-5 py-4">
+            <div className="flex items-center justify-between border-b border-emerald-950/10 bg-emerald-50/80 px-5 py-4">
               <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-400/20">
-                  <Sparkles className="h-5 w-5 text-slate-300" />
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-800">
+                  <Sparkles className="h-5 w-5 text-emerald-50" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-slate-100 font-display text-lg">AI Tutor</h3>
-                  <p className="text-xs font-medium text-slate-400">Your personal study companion</p>
+                  <h3 className="font-bold text-emerald-950 font-display text-lg">AI Tutor</h3>
+                  <p className="text-xs font-medium text-emerald-950/55">Your personal study companion</p>
                 </div>
               </div>
               <button 
                 onClick={() => setTutorOpen(false)}
-                className="rounded-full p-2 text-slate-400 transition-colors hover:bg-white/10 hover:text-slate-100"
+                className="rounded-xl p-2 text-emerald-950/55 transition-colors hover:bg-emerald-100 hover:text-emerald-950"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -120,12 +120,12 @@ export default function AITutorWidget() {
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {history.length === 0 ? (
                 <div className="flex h-full flex-col items-center justify-center gap-4 text-center">
-                  <div className="rounded-full bg-slate-400/10 p-6">
-                    <MessageSquare className="h-10 w-10 text-slate-300 opacity-80" />
+                  <div className="rounded-3xl bg-emerald-100 p-6">
+                    <MessageSquare className="h-10 w-10 text-emerald-800 opacity-80" />
                   </div>
                   <div>
-                    <h4 className="font-semibold text-slate-100">How can I help?</h4>
-                    <p className="text-sm text-slate-400 mt-2 max-w-[250px]">
+                    <h4 className="font-semibold text-emerald-950">How can I help?</h4>
+                    <p className="mt-2 max-w-[250px] text-sm text-emerald-950/60">
                       I'm aware of your learning goals and current progress. Ask me to explain concepts, give examples, or clarify doubts!
                     </p>
                   </div>
@@ -143,7 +143,7 @@ export default function AITutorWidget() {
               )}
               
               {error && (
-                <div className="flex items-start gap-2 rounded-xl bg-red-950/40 p-3 border border-red-900/50 animate-fade-in-up text-sm">
+                <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm animate-fade-in-up">
                   <XCircle className="h-5 w-5 shrink-0 text-red-500" />
                   <p className="font-medium text-red-200">{error}</p>
                 </div>
@@ -153,8 +153,8 @@ export default function AITutorWidget() {
             </div>
 
             {/* Input Area */}
-            <div className="border-t border-slate-800 bg-slate-900 p-4 backdrop-blur-md">
-              <div className="flex items-end gap-2 rounded-2xl border border-slate-700 bg-slate-900 p-2 shadow-inner focus-within:border-slate-400 focus-within:ring-1 focus-within:ring-slate-400 transition-all">
+            <div className="border-t border-emerald-950/10 bg-emerald-50/50 p-4 backdrop-blur-md">
+              <div className="flex items-end gap-2 rounded-2xl border border-emerald-950/15 bg-white/80 p-2 shadow-inner transition-all focus-within:border-emerald-600 focus-within:ring-2 focus-within:ring-emerald-200">
                 <textarea
                   value={input}
                   onChange={(e) => {
@@ -170,12 +170,12 @@ export default function AITutorWidget() {
                   }}
                   rows={1}
                   placeholder={placeholder}
-                  className="max-h-32 w-full resize-none bg-transparent px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 outline-none"
+                  className="max-h-32 w-full resize-none bg-transparent px-3 py-2 text-sm text-emerald-950 placeholder:text-emerald-950/40 outline-none"
                 />
                 <button
                   onClick={handleSend}
                   disabled={sending || !input.trim()}
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-slate-900 transition-colors hover:bg-slate-200 disabled:opacity-50 disabled:hover:bg-slate-100 mb-0.5"
+                  className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-800 text-white transition-colors hover:bg-emerald-900 disabled:opacity-50 disabled:hover:bg-emerald-800"
                 >
                   <Send className="h-4 w-4 ml-0.5" />
                 </button>

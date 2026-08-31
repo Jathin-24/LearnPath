@@ -8,7 +8,7 @@ import PageSkeleton from "../components/Skeleton";
 import { useAppState } from "../context/AppStateContext";
 import type { RoadmapNode } from "../types";
 import { Link } from "react-router-dom";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Sparkles } from "lucide-react";
 
 export default function RoadmapReview() {
   const { state, updateState, auth } = useAppState();
@@ -25,7 +25,7 @@ export default function RoadmapReview() {
 
   if (!sessionId || !state || !state.roadmap) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100">
+      <div className="min-h-screen bg-[#f7f5ed] text-emerald-950">
         <PageSkeleton />
       </div>
     );
@@ -78,23 +78,23 @@ export default function RoadmapReview() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen bg-[#f7f5ed] text-emerald-950">
       <div className="mx-auto max-w-5xl px-6 py-8">
-        <Link to="/app" className="flex items-center gap-1 text-sm font-medium text-slate-400 hover:text-white transition mb-4">
+        <Link to="/app" className="mb-4 flex items-center gap-1 text-sm font-medium text-emerald-950/58 transition hover:text-emerald-800">
           <ChevronLeft className="w-4 h-4" /> Back to Dashboard
         </Link>
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold font-display">Your personalized path</h1>
-            <p className="mt-1 text-sm text-slate-400">
-              {roadmap.nodes.length} topics â€¢ {roadmap.nodes.reduce((acc, n) => acc + n.estimated_days, 0)} days total â€¢ Path {roadmap.path_type === "path_a_dataset" ? "A" : "B"}
+            <h1 className="text-2xl font-bold font-display text-emerald-950">Your personalized path</h1>
+            <p className="mt-1 text-sm text-emerald-950/60">
+              {roadmap.nodes.length} topics · {roadmap.nodes.reduce((acc, n) => acc + n.estimated_days, 0)} days total · Path {roadmap.path_type === "path_a_dataset" ? "A" : "B"}
             </p>
           </div>
-          <div className="flex shrink-0 gap-1 rounded-full bg-slate-900 p-1">
+          <div className="flex shrink-0 gap-1 rounded-full border border-emerald-950/10 bg-white/55 p-1">
             <button
               onClick={() => setView("graph")}
               className={`rounded-full px-3 py-1 text-xs font-medium ${
-                view === "graph" ? "bg-slate-100 text-slate-900" : "text-slate-400"
+                view === "graph" ? "bg-emerald-800 text-amber-50" : "text-emerald-950/58"
               }`}
             >
               Graph
@@ -102,7 +102,7 @@ export default function RoadmapReview() {
             <button
               onClick={() => setView("list")}
               className={`rounded-full px-3 py-1 text-xs font-medium ${
-                view === "list" ? "bg-slate-100 text-slate-900" : "text-slate-400"
+                view === "list" ? "bg-emerald-800 text-amber-50" : "text-emerald-950/58"
               }`}
             >
               List
@@ -192,7 +192,7 @@ export default function RoadmapReview() {
               disabled={confirming || modifying}
               className="rounded-full bg-slate-800 px-5 py-3 text-sm font-medium text-slate-400 transition hover:bg-slate-700 disabled:opacity-50"
             >
-              âœ¨ Modify with AI
+              <Sparkles className="h-4 w-4" aria-hidden="true" /> Modify with AI
             </button>
           )}
         </div>

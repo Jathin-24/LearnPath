@@ -93,10 +93,10 @@ export default function ImportContext() {
   if (!sessionId) return null;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
+    <div className="min-h-screen bg-[#f7f5ed] text-emerald-950">
       <div className="mx-auto max-w-2xl px-6 py-8">
-        <h1 className="text-2xl font-bold">Import context from another AI</h1>
-        <p className="mt-2 text-sm text-slate-400">
+        <h1 className="text-3xl font-semibold tracking-[-0.045em] text-emerald-950">Bring your learning context with you</h1>
+        <p className="mt-3 text-sm leading-6 text-emerald-950/62">
           Already talked to an AI assistant about your goals, skills, or interests? Copy the
           prompt below, paste it there, then paste the reply back here - it gives your
           Profiler a head start. Nothing leaves your control; you copy, read, and paste it
@@ -104,52 +104,52 @@ export default function ImportContext() {
           fact that overrides you.
         </p>
         {isOnboarding && (
-          <div className="mt-3 rounded-lg border border-slate-700 bg-slate-800/40 px-4 py-3 text-sm text-slate-200">
+          <div className="mt-4 rounded-xl border border-emerald-700/15 bg-emerald-100/70 px-4 py-3 text-sm text-emerald-900">
             Optional - do this now if you have context to bring in, or skip it and go straight
             to chat.
           </div>
         )}
 
-        <div className="mt-6 rounded-lg border border-slate-800 bg-slate-900 p-4">
-          <p className="mb-2 text-xs font-medium text-slate-400">Step 1 â€” copy this prompt</p>
-          <pre className="whitespace-pre-wrap rounded-md bg-slate-950 p-3 text-xs text-slate-400">
+        <div className="lp-surface mt-6 rounded-2xl p-5">
+          <p className="mb-3 text-xs font-bold uppercase tracking-[0.12em] text-emerald-800">Step 1 — copy this prompt</p>
+          <pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-xl border border-emerald-950/8 bg-white/55 p-4 text-xs leading-5 text-emerald-950/65">
             {EXPORT_PROMPT}
           </pre>
           <button
             onClick={() => copy(EXPORT_PROMPT)}
-            className="mt-2 rounded-md bg-slate-800 px-3 py-1 text-xs font-medium transition hover:bg-slate-600"
+            className="mt-3 rounded-xl bg-emerald-100 px-4 py-2 text-xs font-semibold text-emerald-900 transition hover:bg-emerald-200"
           >
             {copied ? "Copied!" : "Copy to clipboard"}
           </button>
         </div>
 
-        <div className="mt-6 rounded-lg border border-slate-800 bg-slate-900 p-4">
-          <p className="mb-2 text-xs font-medium text-slate-400">Step 2 â€” paste the reply here</p>
+        <div className="lp-surface mt-6 rounded-2xl p-5">
+          <p className="mb-3 text-xs font-bold uppercase tracking-[0.12em] text-emerald-800">Step 2 — paste the reply here</p>
           <textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
             rows={8}
-            className="w-full rounded-md bg-slate-950 p-3 text-sm text-slate-100 outline-none focus:ring-2 focus:ring-slate-400"
+            className="w-full rounded-xl border border-emerald-950/14 bg-white/60 p-4 text-sm text-emerald-950 outline-none transition focus:border-emerald-700/35 focus:bg-white focus:ring-4 focus:ring-emerald-700/10"
             placeholder="Paste the other AI's reply here..."
           />
           <button
             onClick={handleSave}
             disabled={saving || !text.trim()}
-            className="mt-3 rounded-full bg-slate-100 px-6 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-200 disabled:opacity-50"
+            className="mt-3 rounded-xl bg-emerald-800 px-6 py-2.5 text-sm font-semibold text-amber-50 transition hover:bg-emerald-900 disabled:opacity-50"
           >
             {saving ? "Saving..." : "Save"}
           </button>
           {saved && (
-            <p className="mt-2 text-sm text-green-400">
+            <p className="mt-3 text-sm text-emerald-800">
               Saved - this'll help shape your roadmap next time it's generated.
             </p>
           )}
-          {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
+          {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
         </div>
 
-        <div className="mt-6 rounded-lg border border-slate-800 bg-slate-900 p-4">
-          <p className="mb-2 text-xs font-medium text-slate-400">Or upload your resume</p>
-          <p className="mb-3 text-xs text-slate-500">
+        <div className="lp-surface mt-6 rounded-2xl p-5">
+          <p className="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-emerald-800">Or upload your resume</p>
+          <p className="mb-4 text-xs leading-5 text-emerald-950/55">
             PDF only, for now. We'll pull skills, certifications, hobbies, and personal details
             out to auto-fill your profile too - see the Profile page after this.
           </p>
@@ -163,24 +163,24 @@ export default function ImportContext() {
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading}
-            className="rounded-md bg-slate-800 px-3 py-1 text-xs font-medium transition hover:bg-slate-600 disabled:opacity-50"
+            className="rounded-xl bg-emerald-100 px-4 py-2 text-xs font-semibold text-emerald-900 transition hover:bg-emerald-200 disabled:opacity-50"
           >
             {uploading ? "Reading resume..." : "Choose PDF"}
           </button>
           {uploading && <BuildingIndicator label="Reading your resume and building your profile..." className="mt-3" />}
           {resumeSaved && (
-            <p className="mt-2 text-sm text-green-400">
+            <p className="mt-3 text-sm text-emerald-800">
               Resume read successfully - this'll help shape your roadmap next time it's
               generated.
             </p>
           )}
-          {resumeError && <p className="mt-2 text-sm text-red-400">{resumeError}</p>}
+          {resumeError && <p role="alert" className="mt-3 text-sm text-red-700">{resumeError}</p>}
         </div>
 
         {isOnboarding && (
           <button
             onClick={() => navigate("/app")}
-            className="mt-6 w-full rounded-full bg-slate-100 px-6 py-3 text-sm font-semibold text-slate-900 transition hover:bg-slate-200"
+            className="mt-6 w-full rounded-xl bg-emerald-800 px-6 py-3 text-sm font-semibold text-amber-50 transition hover:-translate-y-0.5 hover:bg-emerald-900"
           >
             {saved || resumeSaved ? "Continue to Chat" : "Skip for now - Continue to Chat"}
           </button>

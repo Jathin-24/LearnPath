@@ -39,7 +39,7 @@ export default function App() {
   return (
     <ToastProvider>
       <AppStateProvider>
-        <div className="flex min-h-screen bg-slate-950 font-sans text-slate-300 antialiased selection:bg-slate-400/30">
+        <div className="lp-app-shell flex min-h-screen font-sans antialiased">
           <AuthGuard>
             <AppChrome />
           </AuthGuard>

@@ -148,7 +148,7 @@ export default function Chat() {
 
   if (!sessionId || !state) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100">
+      <div className="min-h-screen bg-[#f7f5ed] text-emerald-950">
         <PageSkeleton />
       </div>
     );
@@ -170,30 +170,30 @@ export default function Chat() {
   if (isGeneratingPhase || hasRoadmap) currentStep = 4;
 
   return (
-    <div className="flex h-[100dvh] flex-col bg-slate-950 text-slate-100 overflow-hidden relative">
+    <div className="relative flex h-[100dvh] flex-col overflow-hidden bg-[#f7f5ed] text-emerald-950">
       {/* Background glow effects */}
 
       
-      <header className="relative z-10 glass-panel-light border-b border-slate-800 px-6 py-5">
+      <header className="relative z-10 border-b border-emerald-950/10 bg-[#fffdf7]/75 px-6 py-5 backdrop-blur-xl">
         <div className="mx-auto max-w-4xl flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-slate-400/20 rounded-xl">
-              <MessageCircle className="w-5 h-5 text-slate-300" />
+            <div className="rounded-xl bg-emerald-100 p-2">
+              <MessageCircle className="w-5 h-5 text-emerald-800" />
             </div>
-            <h1 className="text-xl font-bold font-display text-slate-100">Let&apos;s figure out your path</h1>
+            <h1 className="text-xl font-bold font-display text-emerald-950">Let&apos;s figure out your path</h1>
           </div>
           {history.length === 0 ? (
-            <div className="flex items-center gap-3 rounded-xl border border-slate-400/30 bg-slate-400/10 px-4 py-2 text-sm text-slate-200">
-              <Sparkles className="w-4 h-4 text-slate-300" />
+            <div className="flex items-center gap-3 rounded-xl border border-emerald-800/15 bg-emerald-100/65 px-4 py-2 text-sm text-emerald-900">
+              <Sparkles className="w-4 h-4 text-emerald-700" />
               <span>Already talked to another AI about your goals?</span>
-              <Link to="/import" className="shrink-0 flex items-center gap-1.5 font-semibold text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-200 px-3 py-1 rounded-lg transition-all">
+              <Link to="/import" className="shrink-0 flex items-center gap-1.5 rounded-lg border border-emerald-800/10 bg-emerald-800 px-3 py-1 font-semibold text-amber-50 transition-all hover:bg-emerald-900">
                 <Import className="w-3 h-3" /> Import Context
               </Link>
             </div>
           ) : (
-            <p className="flex items-center gap-2 text-xs font-medium text-slate-400 bg-slate-900/50 px-3 py-1.5 rounded-lg border border-slate-800">
+            <p className="flex items-center gap-2 rounded-lg border border-emerald-950/10 bg-white/50 px-3 py-1.5 text-xs font-medium text-emerald-950/58">
               Have existing context?{" "}
-              <Link to="/import" className="flex items-center gap-1 text-slate-300 hover:text-slate-300 hover:underline">
+              <Link to="/import" className="flex items-center gap-1 text-emerald-800 hover:underline">
                 Import <ArrowRight className="w-3 h-3" />
               </Link>
             </p>
@@ -208,7 +208,7 @@ export default function Chat() {
           {history.length === 0 && (
             <ChatBubble
               role="assistant"
-              content="Hi! I&apos;m your AI learning architect. What&apos;s your learning goal - and roughly how much time do you have for it?"
+              content="Hi! I'm your AI learning architect. What's your learning goal—and roughly how much time do you have for it?"
             />
           )}
           {history.map((turn, i) => (
@@ -221,10 +221,10 @@ export default function Chat() {
           )}
 
           {showChecklist && (
-            <div className="mx-auto max-w-2xl glass-panel p-6 rounded-3xl animate-fade-in-up">
+            <div className="lp-surface mx-auto max-w-2xl rounded-3xl p-6 animate-fade-in-up">
               <div className="flex items-center gap-2 mb-4">
-                <Check className="w-5 h-5 text-slate-300" />
-                <p className="text-sm font-semibold text-slate-100">
+                <Check className="w-5 h-5 text-emerald-700" />
+                <p className="text-sm font-semibold text-emerald-950">
                   Which of these skills do you already know?
                 </p>
               </div>
@@ -237,11 +237,11 @@ export default function Chat() {
                       onClick={() => toggleConcept(concept)}
                       className={`rounded-xl border px-4 py-2 text-sm font-medium transition-all duration-300 flex items-center gap-2 ${
                         isChecked
-                          ? "border-slate-400 bg-slate-400/20 text-slate-100 shadow-[0_0_15px_rgba(148,163,184,0.2)]"
-                          : "border-slate-800 bg-slate-800 text-slate-400 hover:bg-white/10"
+                          ? "border-emerald-700/40 bg-emerald-100 text-emerald-950 shadow-sm"
+                          : "border-emerald-950/10 bg-white/55 text-emerald-950/65 hover:border-emerald-700/25"
                       }`}
                     >
-                      {isChecked && <Check className="w-4 h-4 text-slate-300" />}
+                      {isChecked && <Check className="w-4 h-4 text-emerald-700" />}
                       {concept}
                     </button>
                   );
@@ -250,7 +250,7 @@ export default function Chat() {
               <button
                 onClick={handleChecklistConfirm}
                 disabled={submittingChecklist}
-                className="mt-6 w-full sm:w-auto rounded-xl bg-slate-100 px-8 py-3 text-sm font-bold text-slate-900 transition-all hover:bg-slate-200 hover:scale-[1.02] disabled:opacity-50 shadow-lg shadow-slate-950/50"
+                className="mt-6 w-full rounded-xl bg-emerald-800 px-8 py-3 text-sm font-bold text-amber-50 transition-all hover:-translate-y-0.5 hover:bg-emerald-900 sm:w-auto disabled:opacity-50"
               >
                 {submittingChecklist
                   ? "Thinking..."
@@ -262,7 +262,7 @@ export default function Chat() {
           )}
 
           {showQuiz && (
-            <div className="mx-auto max-w-2xl glass-panel p-6 rounded-3xl animate-fade-in-up">
+            <div className="lp-surface mx-auto max-w-2xl rounded-3xl p-6 animate-fade-in-up">
               <QuizForm
                 questions={state.pending_quiz}
                 onSubmit={handleQuizSubmit}
@@ -273,12 +273,12 @@ export default function Chat() {
 
           {showQuizReview && quizResults && (
             <div className="mx-auto max-w-2xl space-y-6 animate-fade-in-up">
-              <div className="glass-panel p-6 rounded-3xl">
+              <div className="lp-surface rounded-3xl p-6">
                 <QuizResults results={quizResults} />
               </div>
               <button
                 onClick={handleContinueAfterQuiz}
-                className="w-full rounded-xl bg-slate-100 px-8 py-3.5 text-base font-bold text-slate-900 transition-all hover:bg-slate-200 hover:scale-[1.02] shadow-lg shadow-slate-950/50 flex items-center justify-center gap-2"
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-800 px-8 py-3.5 text-base font-bold text-amber-50 shadow-[0_12px_28px_rgba(13,89,55,0.2)] transition-all hover:-translate-y-0.5 hover:bg-emerald-900"
               >
                 Continue <ArrowRight className="w-5 h-5" />
               </button>
@@ -286,12 +286,13 @@ export default function Chat() {
           )}
 
           {isGeneratingPhase && (
-            <div className="mx-auto max-w-2xl glass-panel p-10 rounded-3xl animate-fade-in-up text-center mt-8">
-              <Sparkles className="w-12 h-12 text-slate-300 mx-auto mb-6 animate-pulse" />
-              <h2 className="text-2xl font-bold font-display text-slate-100 mb-4">
+            <div className="lp-surface relative mx-auto mt-8 max-w-2xl overflow-hidden rounded-3xl p-10 text-center animate-fade-in-up">
+              <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-emerald-300/30 blur-3xl" aria-hidden="true" />
+              <Sparkles className="mx-auto mb-6 h-12 w-12 animate-pulse text-emerald-700" />
+              <h2 className="mb-4 text-2xl font-bold font-display text-emerald-950">
                 You're all set!
               </h2>
-              <p className="text-slate-400 mb-8 leading-relaxed">
+              <p className="mb-8 leading-relaxed text-emerald-950/62">
                 We have enough context to generate your personalized learning roadmap. 
                 This will take 10-30 seconds as the AI curates your curriculum.
               </p>
@@ -299,7 +300,7 @@ export default function Chat() {
               <button
                 onClick={handleGenerateRoadmap}
                 disabled={generatingRoadmap}
-                className="w-full rounded-xl bg-slate-100 px-8 py-4 text-lg font-bold text-slate-900 transition-all hover:bg-slate-200 hover:scale-[1.02] disabled:opacity-50 shadow-lg shadow-slate-950/50 flex items-center justify-center gap-3"
+                className="flex w-full items-center justify-center gap-3 rounded-xl bg-emerald-800 px-8 py-4 text-lg font-bold text-amber-50 shadow-[0_14px_30px_rgba(13,89,55,0.22)] transition-all hover:-translate-y-0.5 hover:bg-emerald-900 disabled:opacity-50"
               >
                 {generatingRoadmap ? "Building your personalized learning path..." : "Generate Roadmap"}
                 {!generatingRoadmap && <ArrowRight className="w-6 h-6" />}
@@ -313,12 +314,12 @@ export default function Chat() {
 
       {error && (
         <div className="relative z-10 mx-auto max-w-4xl px-6 pb-2 w-full">
-          <p className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-2 rounded-lg text-sm">{error}</p>
+          <p role="alert" className="rounded-xl border border-red-700/15 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</p>
         </div>
       )}
 
       {showComposer && (
-        <div className="relative z-10 glass-panel-light border-t border-slate-800 p-4 md:p-6 backdrop-blur-xl bg-slate-950/80">
+        <div className="relative z-10 border-t border-emerald-950/10 bg-[#fffdf7]/85 p-4 backdrop-blur-xl md:p-6">
           <div className="mx-auto flex max-w-4xl gap-3">
             <textarea
               value={input}
@@ -335,12 +336,14 @@ export default function Chat() {
               }}
               rows={1}
               placeholder="Type your message..."
-              className="flex-1 resize-none rounded-2xl bg-slate-900 border border-slate-700 px-5 py-3.5 text-base text-slate-100 outline-none focus:border-slate-400 focus:ring-1 focus:ring-slate-400 transition-all placeholder:text-slate-500 shadow-inner"
+              aria-label="Message your learning architect"
+              className="flex-1 resize-none rounded-2xl border border-emerald-950/14 bg-white/65 px-5 py-3.5 text-base text-emerald-950 shadow-inner outline-none transition-all placeholder:text-emerald-950/38 focus:border-emerald-700/35 focus:bg-white focus:ring-4 focus:ring-emerald-700/10"
             />
             <button
               onClick={handleSend}
               disabled={sending || !input.trim()}
-              className="rounded-2xl bg-slate-100 px-6 py-3.5 text-sm font-bold text-slate-900 transition-all hover:bg-slate-200 disabled:opacity-50 disabled:hover:bg-slate-100 shadow-lg shadow-slate-950/50 flex items-center justify-center"
+              aria-label="Send message"
+              className="flex items-center justify-center rounded-2xl bg-emerald-800 px-6 py-3.5 text-sm font-bold text-amber-50 shadow-[0_10px_24px_rgba(13,89,55,0.2)] transition-all hover:-translate-y-0.5 hover:bg-emerald-900 disabled:opacity-50"
             >
               <Send className="w-5 h-5" />
             </button>

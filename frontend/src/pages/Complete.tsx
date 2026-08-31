@@ -14,6 +14,7 @@ import {
 import { restartGoal, getDashboard, getAnalytics } from "../api";
 import Celebration from "../components/Celebration";
 import PageSkeleton from "../components/Skeleton";
+import { DimensionalOrb } from "../components/ui/DimensionalOrb";
 import { useAppState } from "../context/AppStateContext";
 import { useToast } from "../context/ToastContext";
 import type { DashboardResponse, AnalyticsResponse } from "../types";
@@ -81,23 +82,26 @@ export default function Complete() {
   const achievedBadges = dashboard?.badges.filter(b => b.achieved) ?? [];
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 pb-24 font-sans overflow-x-hidden relative">
+    <div className="min-h-screen pb-24 font-sans overflow-x-hidden relative">
       
       {/* Celebration Effects */}
 
+      <DimensionalOrb className="pointer-events-none absolute -left-20 top-20 h-64 w-64 opacity-45" />
+      <DimensionalOrb className="pointer-events-none absolute -right-24 top-96 h-72 w-72 opacity-30" />
       <div className="mx-auto max-w-4xl px-4 py-12 relative z-10 space-y-12">
         
         {/* Section 1: Completion Hero */}
-        <div className="relative overflow-hidden text-center space-y-6 animate-fade-in-up rounded-3xl">
+        <div className="lp-surface relative overflow-hidden text-center space-y-6 animate-fade-in-up rounded-[2rem] px-6 py-10 sm:px-10">
           <Celebration count={42} />
-          <div className="relative z-20 inline-flex items-center justify-center p-6 rounded-full bg-gradient-to-br from-slate-400/20 to-slate-400/20 border border-slate-400/30 shadow-[0_0_50px_rgba(148,163,184,0.15)] mb-4">
-            <Trophy className="w-16 h-16 text-slate-300" />
+          <div className="relative z-20 inline-flex items-center justify-center p-6 rounded-[1.4rem] bg-gradient-to-br from-emerald-100 to-lime-100 border border-emerald-200 shadow-[0_20px_50px_rgba(22,120,76,0.16)] mb-1">
+            <Trophy className="w-16 h-16 text-emerald-800" />
           </div>
-          <h1 className="relative z-20 text-4xl md:text-5xl font-black font-display text-transparent bg-clip-text bg-gradient-to-r from-slate-200 via-white to-slate-200 tracking-tight">
-            Roadmap Complete
+          <p className="relative z-20 text-xs font-bold uppercase tracking-[0.18em] text-emerald-800">Milestone reached</p>
+          <h1 className="relative z-20 text-4xl md:text-5xl font-black font-display lp-text-gradient tracking-tight">
+            Roadmap complete.
           </h1>
-          <p className="relative z-20 text-lg text-slate-400 max-w-2xl mx-auto leading-relaxed">
-            Congratulations, <span className="text-slate-100 font-semibold">{state.learner_profile.name || "Learner"}</span>! You have successfully mastered all topics required to achieve your goal of <span className="text-slate-300 font-semibold">{state.learner_profile.goal}</span>.
+          <p className="relative z-20 text-base text-emerald-950/65 max-w-2xl mx-auto leading-relaxed">
+            Congratulations, <span className="text-emerald-950 font-semibold">{state.learner_profile.name || "Learner"}</span>. You have completed the learning path for <span className="text-emerald-800 font-semibold">{state.learner_profile.goal}</span>.
           </p>
         </div>
 

@@ -15,17 +15,17 @@ export default function ChatBubble({ role, content, agent, isCompact, isTyping }
     <div className={`flex ${isUser ? "justify-end" : "justify-start"} animate-fade-in-up`}>
       <div className="max-w-[80%]">
         {isTutor && (
-          <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold tracking-wide text-emerald-400">
-            <span className="text-sm">ðŸŽ“</span> Topic Tutor
+          <p className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold tracking-wide text-emerald-700">
+            <span className="text-sm">✦</span> Topic Tutor
           </p>
         )}
         <div
           className={`whitespace-pre-wrap ${isCompact ? "px-4 py-2.5" : "px-5 py-3.5"} text-sm leading-relaxed shadow-lg ${
             isUser
-              ? "bg-gradient-to-br from-slate-200 to-slate-300 text-slate-900 rounded-2xl rounded-br-sm shadow-slate-950/50"
+              ? "bg-emerald-800 text-amber-50 rounded-2xl rounded-br-sm shadow-[0_10px_24px_rgba(13,89,55,0.16)]"
               : isTutor
-                ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-50 rounded-2xl rounded-bl-sm shadow-emerald-500/10 backdrop-blur-sm"
-                : "border border-slate-800 bg-slate-800 text-slate-100 rounded-2xl rounded-bl-sm backdrop-blur-sm"
+                ? "border border-emerald-700/20 bg-emerald-100/70 text-emerald-950 rounded-2xl rounded-bl-sm shadow-sm"
+                : "border border-emerald-950/10 bg-[#fffdf7]/75 text-emerald-950 rounded-2xl rounded-bl-sm shadow-sm backdrop-blur-sm"
           }`}
         >
           {isTyping ? (

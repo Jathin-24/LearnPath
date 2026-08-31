@@ -7,7 +7,16 @@ import {
   reorderRoadmapNode,
   skipRoadmapNode,
 } from "../api";
-import { Plus } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  ExternalLink,
+  Play,
+  Plus,
+  RefreshCw,
+  Search,
+} from "lucide-react";
 import type { AppState, RoadmapNode } from "../types";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -215,7 +224,7 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged, 
                 <ul className="mt-1.5 space-y-0.5">
                   {node.project.success_criteria.map((c, i) => (
                     <li key={i} className="flex items-start gap-1 text-xs text-slate-500">
-                      <span className="mt-0.5 text-slate-300">âœ“</span>
+                      <Check className="mt-0.5 h-3 w-3 shrink-0 text-emerald-600" aria-hidden="true" />
                       <span>{c}</span>
                     </li>
                   ))}
@@ -247,7 +256,8 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged, 
                   onClick={(e) => e.stopPropagation()}
                   className="max-w-[14rem] truncate rounded-full bg-slate-800 px-2 py-0.5 text-xs text-slate-400 hover:text-slate-300"
                 >
-                  ðŸ"— {r.title}
+                  <ExternalLink className="mr-1 inline h-3 w-3" aria-hidden="true" />
+                  {r.title}
                 </a>
               ))}
               {node.youtube_links.map((r) => (
@@ -260,7 +270,8 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged, 
                   onClick={(e) => e.stopPropagation()}
                   className="max-w-[14rem] truncate rounded-full bg-red-950/50 px-2 py-0.5 text-xs text-red-300 hover:text-red-200"
                 >
-                  â–¶ {r.title}
+                  <Play className="mr-1 inline h-3 w-3" aria-hidden="true" />
+                  {r.title}
                 </a>
               ))}
             </div>
@@ -279,7 +290,13 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged, 
                 disabled={busyNodeId === node.node_id}
                 className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-400 transition hover:bg-slate-800 disabled:opacity-30"
               >
-                {busyNodeId === node.node_id ? "Searching..." : "ðŸ”Ž Find more resources"}
+                {busyNodeId === node.node_id ? (
+                  "Searching..."
+                ) : (
+                  <span className="inline-flex items-center gap-1">
+                    <Search className="h-3 w-3" aria-hidden="true" /> Find more resources
+                  </span>
+                )}
               </button>
               {node.status !== "complete" && regenerateBoxNodeId !== node.node_id && (
                 <button
@@ -287,7 +304,9 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged, 
                   disabled={busyNodeId === node.node_id}
                   className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-400 transition hover:bg-slate-800 disabled:opacity-30"
                 >
-                  â™» Regenerate
+                  <span className="inline-flex items-center gap-1">
+                    <RefreshCw className="h-3 w-3" aria-hidden="true" /> Regenerate
+                  </span>
                 </button>
               )}
             </div>
@@ -359,14 +378,18 @@ export default function RoadmapList({ nodes, onNodeClick, sessionId, onChanged, 
                     disabled={busyNodeId === node.node_id || i === 0}
                     className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-400 transition hover:bg-slate-800 disabled:opacity-30"
                   >
-                    â–² Move up
+                    <span className="inline-flex items-center gap-1">
+                      <ArrowUp className="h-3 w-3" aria-hidden="true" /> Move up
+                    </span>
                   </button>
                   <button
                     onClick={(e) => handleReorder(e, node.node_id, "down")}
                     disabled={busyNodeId === node.node_id || i === nodes.length - 1}
                     className="rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-400 transition hover:bg-slate-800 disabled:opacity-30"
                   >
-                    â–¼ Move down
+                    <span className="inline-flex items-center gap-1">
+                      <ArrowDown className="h-3 w-3" aria-hidden="true" /> Move down
+                    </span>
                   </button>
                   <button
                     onClick={(e) => startEditing(e, node)}
